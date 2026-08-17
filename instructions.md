@@ -6,9 +6,9 @@
 > On a local network there is nothing to arrange: your server gives the two addresses different ports on the same hostname, and a different port is already a different address as far as the browser is concerned. If you are serving CryptPad over a domain, plan for two hostnames — see [Getting set up](#getting-set-up).
 
 > [!WARNING]
-> **Already had CryptPad before you updated your server? It's still there, as CryptPad (Legacy).** This is a separate, much newer service, and nothing moves across on its own — so your old one is kept alongside it rather than replaced, and both keep working.
+> **Coming from CryptPad on StartOS 0.3.x? Export your pads first.** This is a new package, not an upgrade of the old one — underneath it is a CryptPad several years newer, storing its data in a completely different layout. Your server will not offer it to you as an update, deliberately: nothing from the old instance carries across, and quietly replacing it would leave you looking at an empty CryptPad.
 >
-> To bring your documents over: open **CryptPad (Legacy)**, sign in, and export your drive. Then finish setting this one up and import your pads back in. Uninstall CryptPad (Legacy) once you're happy everything arrived — uninstalling deletes its data.
+> So while your old CryptPad still works, sign in and export your drive. Then uninstall the old service, install this one, complete setup, and import your pads back in.
 
 ## Documentation
 

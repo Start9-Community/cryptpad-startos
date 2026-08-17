@@ -32,7 +32,22 @@ curl -s https://hub.docker.com/v2/repositories/cryptpad/cryptpad/tags/version-<X
 2. `startos/versions/current.ts` — set `version` to `'<X.Y.Z>:0'` and rewrite `releaseNotes`
    for all five locales. Bump the downstream revision (`:0` → `:1`) instead when the change is
    wrapper-only with no upstream move. Do **not** add a downstream prerelease suffix — see
-   `versions.md`. Only spin off a historical version file if the bump needs a migration.
+   `versions.md`.
+
+   **Spin `2026.5.1:0` off into its own version file and keep it in `versions/index.ts`'s
+   `other[]`, still carrying `up: IMPOSSIBLE` — permanently.** It is what blocks the retired 0.3.x
+   package, whose `5.2.1` shares this package's id and sorts below ours, and the block lives in
+   the graph rather than in that file: a version's inbound range is anchored at its predecessor,
+   so dropping the node re-widens `canMigrateFrom` and lets `5.2.1` in again. This is the one case
+   where `versions.md`'s "don't create unnecessary version files" gives the wrong answer; the new
+   `current` gets an ordinary `up`, and only that first node keeps `IMPOSSIBLE`. Verify after
+   packing:
+
+   ```sh
+   start-cli s9pk inspect cryptpad_x86_64.s9pk manifest | jq -r .canMigrateFrom
+   ```
+
+   It must be lower-bounded (`>=2026.5.1:0 && …`), never a bare `<=`.
 
 3. **Re-verify the pinned upstream claims.** This is the part that silently rots. Several files
    cite upstream source at a specific tag (`@2026.5.1`) and encode assumptions about it. Check
