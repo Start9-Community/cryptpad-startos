@@ -29,11 +29,8 @@ export const current = VersionInfo.of({
       "Définissez les deux depuis l'onglet Actions, puis terminez la configuration initiale pour créer votre compte administrateur. " +
       'Les éditeurs de documents, tableurs et présentations (OnlyOffice) sont intégrés au paquet : aucun téléchargement au premier démarrage.',
   },
-  // No path in. The retired 0.3.x package shares this package's id and sorts
-  // below it, so an empty `up` would have let StartOS offer this as its update
-  // and hand a 2026 CryptPad six volumes laid out for 5.2.1.
   migrations: {
-    up: IMPOSSIBLE,
+    up: async ({ effects }) => {},
     down: IMPOSSIBLE,
   },
 })
