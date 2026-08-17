@@ -43,7 +43,7 @@ const VOLUME_SUBDIRS = [
 const VOLUME_FILES = ['customize/application_config.js'] as const
 
 export const main = sdk.setupMain(async ({ effects }) => {
-  console.info('Starting CryptPad')
+  console.info(i18n('Starting CryptPad'))
 
   const store = await storeJson
     .read((s) => ({

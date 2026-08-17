@@ -4,13 +4,15 @@
 
 # CryptPad on StartOS
 
-> **Upstream docs:** <https://docs.cryptpad.org/en/admin_guide/index.html>
->
 > Everything not listed in this document should behave the same as upstream
 > CryptPad. If a feature, setting, or behavior is not mentioned here, the
-> upstream documentation is accurate and fully applicable.
+> upstream documentation is accurate and fully applicable — see the
+> Documentation section of `instructions.md` for links.
 
-CryptPad is a privacy-first, end-to-end encrypted collaboration suite — documents, spreadsheets, presentations, whiteboards, kanban boards, and more, all encrypted in your browser before touching the server. See <https://cryptpad.org/> and the [upstream repo](https://github.com/cryptpad/cryptpad) for the full feature description.
+[CryptPad](https://github.com/cryptpad/cryptpad) is a privacy-first, end-to-end encrypted collaboration suite — documents, spreadsheets, presentations, whiteboards, kanban boards and more, all encrypted in the browser before touching the server. The package that wraps it is unusual in one respect: CryptPad needs **two origins** to keep its document sandbox isolated, so almost everything below follows from that.
+
+- **Upstream repo:** <https://github.com/cryptpad/cryptpad>
+- **Wrapper repo:** <https://github.com/Start9-Community/cryptpad-startos>
 
 ---
 
@@ -18,446 +20,278 @@ CryptPad is a privacy-first, end-to-end encrypted collaboration suite — docume
 
 - [Image and Container Runtime](#image-and-container-runtime)
 - [Volume and Data Layout](#volume-and-data-layout)
-- [Installation and First-Run Flow](#installation-and-first-run-flow)
-- [Configuration Management](#configuration-management)
-- [Network Access and Interfaces](#network-access-and-interfaces)
-- [Actions (StartOS UI)](#actions-startos-ui)
-- [Backups and Restore](#backups-and-restore)
-- [Health Checks](#health-checks)
+- [File Models](#file-models)
 - [Dependencies](#dependencies)
+- [Network Access and Interfaces](#network-access-and-interfaces)
+- [Installation and First-Run Flow](#installation-and-first-run-flow)
+- [Actions](#actions)
+- [Tasks](#tasks)
+- [Health Checks](#health-checks)
+- [Backups and Restore](#backups-and-restore)
 - [Limitations and Differences](#limitations-and-differences)
-- [What Is Unchanged from Upstream](#what-is-unchanged-from-upstream)
-- [Building from Source](#building-from-source)
-- [Contributing](#contributing)
 - [Quick Reference for AI Consumers](#quick-reference-for-ai-consumers)
 
 ---
 
 ## Image and Container Runtime
 
-| Property | Value |
-|---|---|
-| Image source | Custom Dockerfile in repo root, built `FROM` the upstream `cryptpad/cryptpad` image |
-| Architectures | x86_64, aarch64 |
-| Runtime user | `cryptpad` (UID/GID 4001) |
-| Entrypoint | Upstream entrypoint via `CPAD_CONF` env var |
+One image, built here from a Dockerfile that adds a single layer to upstream's, and one subcontainer.
 
-> The upstream image tag is pinned in `Dockerfile`, and the package version in
-> `startos/versions/current.ts` — those files and the service page are the sources of truth.
-> `UPDATING.md` documents the bump procedure, the upstream tag-format quirks, and the list of
-> upstream claims that must be re-verified on every version change.
+| Property     | Value                                                      |
+| ------------ | ---------------------------------------------------------- |
+| Image source | Local Dockerfile, `FROM` the upstream `cryptpad/cryptpad`  |
+| Architecture | x86_64, aarch64                                            |
+| Runtime user | `cryptpad` (UID/GID 4001)                                  |
+| Entrypoint   | Upstream's, steered by the `CPAD_CONF` environment variable |
 
-The Dockerfile inherits the upstream `cryptpad/cryptpad` image and adds one layer: an OnlyOffice install (`./install-onlyoffice.sh --accept-license --trust-repository`) so the Document / Sheet / Presentation editors are available immediately on first start — no 10+ minute post-install download.
+| Subcontainer  | Purpose                                            |
+| ------------- | -------------------------------------------------- |
+| `cryptpad-sub` | The `primary` daemon — the one to `attach` to |
 
-The container runs the upstream entrypoint, which we point at our generated `config.js` via `CPAD_CONF=/cryptpad/config/config.js`. Because that path already exists on every start (we pre-write it), the entrypoint's auto-generation branch is skipped entirely and the file is StartOS-managed end-to-end.
+The added layer runs `install-onlyoffice.sh`, baking the Document / Sheet / Presentation editors into the image so they are available the moment the service starts. Upstream fetches them on first use instead, which costs the user a ten-to-fifteen minute wait the first time they open an office document.
 
-There is **no in-container reverse proxy**. CryptPad's Node server already emits the correct CSP/COEP/CORP headers; an in-container nginx/Caddy would duplicate them and break the browser-side security checks reported by `/checkup/`. StartOS terminates TLS at the platform layer.
+The container runs upstream's entrypoint with `CPAD_CONF` pointed at a config file this package has already written. The entrypoint only generates a config when that path is missing, so the file existing is what keeps configuration StartOS-managed end to end.
+
+There is **no in-container reverse proxy**, and adding one would be a regression. CryptPad's Node server emits the CSP/COEP/CORP headers its own `/checkup/` self-test asserts on; a second set from an nginx or Caddy in front of it breaks those checks, and StartOS terminates TLS at the platform layer, so there is nothing for such a proxy to do.
 
 ## Volume and Data Layout
 
-The `main` volume is mounted at three locations inside the container:
-
-| Mount | Purpose |
-|---|---|
-| `/data` (volume root) | All persistent CryptPad data — documents, blobs, pins, blocks, decrees, logs |
-| `/cryptpad/customize` | StartOS-managed `application_config.js` (contains `loginSalt`) |
-| `/cryptpad/onlyoffice-conf` | OnlyOffice install state (per-version tracking) |
-
-Directory layout under `/data`:
-
-| Path | Contents |
-|---|---|
-| `/data/store.json` | StartOS state — `adminKeys`, `mainUrl`, `sandboxUrl`, `wizardCompletedNotified` (one-shot latch for the setup-complete notification) |
-| `/data/datastore/` | Document data (`filePath`) |
-| `/data/blob/`, `/data/blobstage/` | Encrypted file uploads (`blobPath`, `blobStagingPath`) |
-| `/data/block/` | Authenticated user blocks (`blockPath`) |
-| `/data/pins/` | User-pinned document references (`pinPath`) |
-| `/data/archive/` | Archived data (`archivePath`) |
-| `/data/tasks/` | Scheduled tasks (`taskPath`) |
-| `/data/decrees/decree.ndjson` | Server-side decree log (`decreePath`) |
-| `/data/logs/` | Activity logs (`logPath`) |
-| `/data/customize/application_config.js` | Mounted to `/cryptpad/customize`. Contains `loginSalt` — written **exactly once** on first install and **never** regenerated, because changing the salt would invalidate every existing user's password hash |
-
-`config.js` is generated from scratch on every restart and written to the container's ephemeral rootfs at `/cryptpad/config/config.js`. It's not on the volume and cannot be edited directly.
-
-`/cryptpad/www/common/onlyoffice/dist/` (per-version OnlyOffice assets) lives in the image rootfs — refreshed when the image is rebuilt. It is **not** a volume mount; mounting an empty volume there would shadow the populated content baked in by the Dockerfile.
-
-## Installation and First-Run Flow
-
-CryptPad on StartOS requires **two origins** for full browser sandbox security: a *main* origin for the application and a *sandbox* origin for isolated document rendering. The browser uses the difference between the two to enforce sandbox isolation around document iframes.
-
-An origin is scheme + host + port, so **two ports on one hostname already satisfy this** — which is what StartOS produces on a LAN with no extra setup, since the two MultiHosts get different external ports. Two distinct hostnames are only needed when serving over a domain, and for a different reason: upstream warns that restrictive networks filter traffic on unusual ports (`config/config.example.js`).
-
-**Two critical tasks appear after install.** **Set Main URL** and **Set Sandbox URL** can be completed in either order. CryptPad will not start until both are set. Once both are done, the daemon starts and a third *important* task — **Complete CryptPad Initial Setup** — appears (informational; does not block startup).
-
-The three-task flow:
-
-1. **Set Main URL** — pick the URL users will open in their browser. Choose any reachable HTTPS URL StartOS exposes (LAN domain, mDNS, Tor, public domain).
-2. **Set Sandbox URL** — pick a different *origin* for the sandbox iframe (a different port on the same hostname is sufficient; a different hostname is preferable when serving over a domain). The browser must see this as a different origin from the main URL for sandbox isolation to work. `setupMain` refuses to launch if the two URLs share an origin (the sandbox boundary would collapse), so this is enforced at startup as well as documented in the action copy.
-3. **Complete CryptPad Initial Setup** — appears once the daemon has bootstrapped. Run the action to copy the install-token URL, open it in a browser, and complete the wizard to create your first administrator account, customize the instance, and (optionally) close registrations.
-
-When the wizard finishes, the reactive watcher posts a one-shot **"CryptPad setup complete"** notification to the StartOS notifications panel — useful as a phone-ping confirmation if you walked away during the wizard. It fires exactly once per install (latched on the `wizardCompletedNotified` flag in `store.json`).
-
-The install-token URL is single-use. Once you finish the wizard, the URL is consumed; running the action again reports "setup already complete" and points you at the in-app `/admin/` panel for further changes.
-
-After this initial flow, day-to-day administration happens in CryptPad's own `/admin/` panel — see [Configuration Management](#configuration-management).
-
-## Configuration Management
-
-| Setting | Where it lives |
-|---|---|
-| Main URL (`httpUnsafeOrigin`) | StartOS — `Set Main URL` action |
-| Sandbox URL (`httpSafeOrigin`) | StartOS — `Set Sandbox URL` action |
-| Administrator keys (`adminKeys`) | Both — StartOS `Add Administrator by Public Key` action and CryptPad `/admin/#support` panel |
-| Storage paths, ports, log destinations | Hardcoded in StartOS — pinned to `/data/*` and the upstream defaults |
-| `loginSalt` | StartOS — written once on install, never changed |
-| Instance name, description, custom branding | CryptPad in-app `/admin/` panel |
-| Maximum upload size, registration toggle | CryptPad in-app `/admin/` panel |
-| 2FA requirement, embedding toggle | CryptPad in-app `/admin/` panel |
-| Applications enabled (Code, Kanban, etc.) | CryptPad in-app `/admin/` panel |
-| Public directory listing | CryptPad in-app `/admin/` panel |
-
-`config.js` is fully owned by StartOS — regenerated from `store.json` on every restart. Editing it inside the container is not supported; changes are overwritten on the next restart.
-
-Settings stored in `store.json` (URLs, admin keys) trigger an automatic daemon restart so they take effect.
-
-## Network Access and Interfaces
-
-CryptPad uses **two `MultiHost` bindings**, both targeting container port 3000:
-
-| Interface | Type | Internal Port | Purpose |
-|---|---|---|---|
-| `ui` | `ui` | 3000 | Main app, admin panel, checkup self-tests, WebSocket entry point |
-| `sandbox` | `api` | 3000 | Internal iframe origin for document sandboxing |
-
-The sandbox interface has `type: 'api'` — it does **not** appear as a clickable launcher in the StartOS UI. It's internal iframe machinery, loaded automatically by the main UI; users have no reason to open it directly. Its hostname is selected via the **Set Sandbox URL** action.
-
-**Why two MultiHosts on the same container port?** CryptPad's browser sandbox model requires `httpUnsafeOrigin ≠ httpSafeOrigin` — the document sandbox iframe must load from a different *origin* so the browser's same-origin policy isolates it from the main app. StartOS gives each MultiHost a distinct hostname, while both bindings target port 3000 inside the container. CryptPad's HTTP server serves the same content regardless of the request's `Host` header; the browser is what enforces the sandbox boundary via origin difference. The CSP differentiation inside CryptPad is by URL path (e.g. `/api/`, OnlyOffice paths), not by host.
-
-**WebSocket multiplex.** CryptPad's HTTP server on port 3000 intercepts upgrade requests for `/cryptpad_websocket` and proxies them internally to its own WebSocket server on port 3003. There is no separate external WebSocket port: the browser connects to `wss://main-host/cryptpad_websocket` over the StartOS-terminated TLS, StartOS routes to container port 3000, and CryptPad's HTTP server handles the proxy hop to port 3003 internally. Port 3003 is never bound externally.
-
-## Actions (StartOS UI)
-
-### Set Main URL
-
-| Property | Value |
-|---|---|
-| ID | `set-main-url` |
-| Availability | Any status |
-| Visibility | Visible |
-| Input | Dropdown of currently-reachable HTTPS URLs |
-| Output | None |
-
-Picks the URL CryptPad serves as its main app — what users open in their browser. The action lists every non-loopback HTTPS URL StartOS currently exposes for the `ui` interface; you pick one. Saved to `store.json` as `mainUrl`.
-
-CryptPad will not start until both this and `Set Sandbox URL` are set. Re-run any time to switch the main URL after installation; the service restarts to pick up the new value.
-
-### Set Sandbox URL
-
-| Property | Value |
-|---|---|
-| ID | `set-sandbox-url` |
-| Availability | Any status |
-| Visibility | Visible |
-| Input | Dropdown of currently-reachable HTTPS URLs |
-| Output | None |
-
-Picks the sandbox iframe origin — must be a *different* hostname from the Main URL for CryptPad's browser sandbox isolation to function. Both setter actions cross-validate against the current value of the other field and refuse to save a same-origin URL; `setupMain` keeps an identical check as a backstop. The action is the only mechanism for picking the sandbox URL because the sandbox interface is `type: 'api'` and not clickable in the StartOS launcher. Saved to `store.json` as `sandboxUrl`.
-
-### Complete CryptPad Initial Setup
-
-| Property | Value |
-|---|---|
-| ID | `show-setup-token-url` (action ID retained for stable references; UI name is `Complete CryptPad Initial Setup`) |
-| Availability | Any status |
-| Visibility | Hidden — surfaced via the third *important* task on first install |
-| Input | None |
-| Output | URL of the form `https://<main-host>/install/#<token>` — **masked and copyable, no QR**. The token is a credential (it creates the first administrator on an instance that has none), so it follows the fleet's masked+copyable convention for secrets; the QR is omitted because rendering the same value as a scannable image would defeat masking the text. |
-
-Reads CryptPad's decree log (`/data/decrees/decree.ndjson`) for the most recent `ADD_INSTALL_TOKEN` decree and constructs the corresponding `/install/#<token>` URL. Open the URL in a browser to run the install wizard (admin account creation, instance customization, application selection, registration policy).
-
-The decree log lives on the volume, so the action can be invoked whether the service is running or stopped. If the daemon has never bootstrapped (no decree file yet), the action returns a clear "wait ~30 seconds and retry" message.
-
-Once any `ADD_ADMIN_KEY` decree appears in the log (i.e., the wizard has completed, or an admin was added through the in-app `/admin/` panel), the action reports "setup already complete" and the third task auto-clears on the next reactive re-run of the init watcher. Use the in-app `/admin/` panel for any further configuration changes.
-
-### Add Administrator by Public Key
-
-| Property | Value |
-|---|---|
-| ID | `add-admin-key` |
-| Availability | Any status |
-| Visibility | Visible |
-| Input | List of strings — each row is one administrator |
-| Output | The saved key list, plus a note that CryptPad is restarting |
-
-Manages the `adminKeys` array written into `config.js`. Each row in the list accepts either:
-
-- a bare CryptPad public signing key (e.g. `CU6kIC-J4zPUqkXuWcxCApSvT4JkhpfBNbf13Mz+Vg4=`)
-- the full profile format (e.g. `[username@instance.example.com/CU6kIC-J4zPUqkXuWcxCApSvT4JkhpfBNbf13Mz+Vg4=]`) — the action extracts the bare key from the full profile. This can be copied from CryptPad → Settings → Account → Public Signing Key
-
-**Validation mirrors upstream `Keys.canonicalize`** (`src/common/common-signing-keys.js`): a key is exactly **44 characters** (43 base64 chars + `=`), and `-` is accepted as the escaped form of `/` — profile links escape `/` so the key survives embedding. The stored value is always the unescaped, canonical form, matching what CryptPad's own `Env.admins` holds. There is **no `_`** in this alphabet; upstream neither produces nor accepts base64url `_`.
-
-Getting this wrong is quiet rather than loud. `lib/env.js` maps `config.adminKeys` through `Keys.canonicalize().filter(Boolean)` into `Env.admins` (the authorization list) but keeps the raw strings in `Env.adminsData` (what `/admin/` renders). A malformed key is therefore **dropped from authorization but still displayed** — it appears in the admin table as a row with a blank key and no Remove button. A v1 revision validated the character set but not the length, so any alphanumeric string was accepted; found in testing (checklist #10).
-
-**To remove an administrator, delete the row and submit.** The list IS the new state, not a delta — anything not in the submitted list is removed from `config.js`'s `adminKeys` array on the next restart. There is no separate "Remove Admin" action.
-
-This action is for first-admin emergency access (when the install-token URL was missed) and bulk add/remove from outside the running app.
-
-#### The two administrator lists
-
-CryptPad maintains administrators in **two independent places**, and this action reaches only one of them. Verified on a live install:
-
-| Admin created by | Stored in | Appears in this action | Removable from `/admin/` |
-|---|---|---|---|
-| Setup wizard, or promoted in-app | Decree log (`ADD_ADMIN_KEY`, `/data/decrees/decree.ndjson`) | **No** | Yes |
-| This action | `config.js` `adminKeys` array (from `store.json`) | Yes | **No** |
-
-Upstream labels the second group in `/admin/` with its `admin_listHardcoded` string — *"Admin added into config.js. Can only be removed by editing the config file."* On StartOS the config file is generated, so the equivalent of "editing the config file" is re-running this action with the row deleted.
-
-The practical consequence, and a reliable source of confusion: **on a fresh install this action's list is empty even though a working administrator already exists** (the wizard's). That is correct behavior, not a missing migration. The action's own description and `instructions.md` both spell this out; it was reported as a suspected bug during v1 testing before the copy was fixed.
-
-Note the asymmetry when revoking: deleting a row here removes that key from `config.js` on the next restart, but has no effect on decree-log admins.
-
-#### Putting the same key in both lists
-
-Adding a key here that is *already* a decree-log admin makes the `/admin/` panel stop offering **Remove** for it. This is shadowing, not destruction, and it is reversible — the decree line is still in `decree.ndjson`.
-
-The mechanism is a startup ordering effect. `lib/env.js` first seeds `Env.admins` / `Env.adminsData` from `config.adminKeys`. Decrees are replayed afterwards, and `commands.ADD_ADMIN_KEY` (`lib/decrees.js`) begins:
-
-```js
-if (Env.admins.includes(key)) { return false; }   // Nothing to change
-Env.admins.push(key);
-Env.adminsData.push(args[0]);
-```
-
-Because our `config.js` copy is already present, the decree short-circuits and never pushes to `adminsData`. The panel's `getAdminsData` builds its rows from `adminsData` and flags each one `hardcoded` when it also appears in `config.adminKeys` — so the only surviving row is the `config.js` one, which by definition renders without a Remove button.
-
-**To undo it:** delete the key from this action's list and submit. On the next restart `config.js` no longer contains it, the decree replays normally, and the key returns as a removable admin.
-
-#### What validation can and cannot check
-
-Validation is **syntactic only** — format and length. It confirms the string is a well-formed Ed25519 public key; it cannot confirm that an account with that key exists. A typo'd key of the correct length is accepted and becomes an administrator entry that no one can ever use.
-
-This is not a shortcut on our part — it is the ceiling. Upstream does exactly the same: both `commands.ADD_ADMIN_KEY` and the `/admin/` panel's own add-admin flow validate with `Keys.canonicalize` alone, and there is no existence check anywhere in the codebase. Nor could there sensibly be one: any 32 bytes is a syntactically valid public key, CryptPad is end-to-end encrypted, and the server holds opaque login blocks rather than a queryable account roster. Adding an admin key is best understood as "grant admin to whoever holds the private half of this key" — a statement about a keypair, not about a registered user.
-
-### Run Diagnostics
-
-| Property | Value |
-|---|---|
-| ID | `run-diagnostics` |
-| Availability | Only when running |
-| Visibility | Visible |
-| Input | None |
-| Output | URL pointing at `https://<main-host>/checkup/` |
-
-Returns the URL of CryptPad's built-in `/checkup/` self-test. Open it in a browser to verify your install or troubleshoot.
-
-Some `/checkup/` tests fail by design. On a freshly set-up instance with no admin content configured, 51 of 55 pass; the four failures are:
-
-| Test | Reports | Why it fails | Fixable? |
-|---|---|---|---|
-| 14 | Encrypted support ticket functionality not enabled | Optional feature, off by default | Yes — `/admin/` → Support tab |
-| 34 | No terms of service specified | Optional instance content | Yes — `/admin/` |
-| 36 | No privacy policy specified | Optional instance content | Yes — `/admin/` |
-| 54 | HSTS not required | StartOS terminates TLS at the platform edge and does not emit `Strict-Transport-Security`; CryptPad's server sees plain HTTP on port 3000 and cannot set it | **No** — see Limitations |
-
-The first three are administrator choices, not defects — an instance that has configured them will pass. Test 54 cannot be fixed from inside the package.
-
-The checkup also flags `/customize/application_config.js` as a customized asset. That is expected and load-bearing: it is where this package persists `loginSalt` (see [Volume and Data Layout](#volume-and-data-layout)).
-
-## Backups and Restore
-
-**Included in backup:** the entire `main` volume — all CryptPad data, the StartOS `store.json` (URLs and admin keys), the `customize/application_config.js` (containing `loginSalt`), the OnlyOffice install state in `onlyoffice-conf/`, and the decree log.
-
-**Excluded:** nothing on the volume. (`/cryptpad/www/common/onlyoffice/dist/` is image rootfs — re-installed at image build, not a volume.)
-
-**Changing the Main URL does not invalidate logins.** Verified against upstream: `Cred.deriveFromPassphrase` (`src/common/common-credential.js`) salts scrypt with `username + Cred.customSalt()`, and `customSalt()` returns `AppConfig.loginSalt` — the origin/hostname is not an input. This is precisely what `startos/init/writeLoginSalt.ts` exists to guarantee, and it is what makes both a URL change and a backup/restore survivable. Confirmed end to end in v1 testing: accounts created before a backup logged in normally after a restore that reassigned every port.
-
-Note the failure mode when a user is at the *wrong* origin, because it is misleading: `customSalt()` falls back to `''` when `AppConfig.loginSalt` is not a string, so a page that has not fully initialised for this instance derives different keys from correct credentials. The user sees **"invalid username or password"** rather than an origin error. Documented for users in `instructions.md`.
-
-**Restore reassigns ports, which re-fires both URL tasks.** A restored package gets new external ports, so the `mainUrl` / `sandboxUrl` saved in `store.json` no longer resolve. The watcher in `startos/init/setup.ts` compares the stored value against the live address list and raises `main-url-unavailable` / `sandbox-url-unavailable`. This is correct behavior, not a restore defect — the user re-picks the same hostnames with new ports and the daemon starts. Confirmed in v1 testing (checklist #17).
-
-**Restore is slow — tens of minutes even for a near-empty instance**, against a backup that completes in seconds. This is *not* the OnlyOffice bake: a fresh install of the identical `.s9pk` finishes in under a minute, so the cost is in the restore path rather than in unpacking the image. Nothing in this package can shorten it; tracked as an upstream item in `TODO.md`. Users are warned in `instructions.md` that a restore takes a while and has not stalled.
-
-**Restore behavior:** the volume is restored in place, then init runs with `kind === 'restore'` (which the SDK reports as `'install'` to package init code). The `customize/application_config.js` file already exists from the backup, so the file-existence guard in `startos/init/writeLoginSalt.ts` prevents `loginSalt` regeneration — and existing user passwords keep working. The decree log is also restored intact, so the install-token state is preserved (a finished install reports "already complete" rather than reissuing a fresh token).
-
-## Health Checks
-
-| Check | Method | Messages |
-|---|---|---|
-| Web Interface | HTTP GET `localhost:3000/api/config` | Success: "CryptPad is ready" / Error: "CryptPad is not ready" |
-
-`/api/config` is the same endpoint CryptPad's own client UI fetches at boot — the canonical readiness signal. A 200 here means the Node server is up, the config has parsed, and the API surface is responding. Stronger than a port-listening check (the port can be open before the app is actually serving).
-
-This is the **only** health check. An earlier iteration of this package had four extras (`admin`, `checkup`, `sandbox-security`, `onlyoffice`) — once `/api/config` returns 200 they all turn green and add no diagnostic value. If you need deeper inspection, use the **Run Diagnostics** action.
+One volume, mounted at three points because two of CryptPad's state directories live outside its data root.
+
+| Volume | Mount Point              | Purpose                                              |
+| ------ | ------------------------ | ---------------------------------------------------- |
+| `main` | `/data`                  | All persistent CryptPad data, plus this package's own state |
+| `main` (subpath `customize`)      | `/cryptpad/customize`      | The StartOS-written `application_config.js` |
+| `main` (subpath `onlyoffice-conf`) | `/cryptpad/onlyoffice-conf` | OnlyOffice's per-version install state       |
+
+Under the volume root:
+
+| Path                                     | Contents                                                                    |
+| ---------------------------------------- | --------------------------------------------------------------------------- |
+| `store.json`                             | This package's state (see [File Models](#file-models))                      |
+| `datastore/`                             | Document data                                                               |
+| `blob/`, `blobstage/`                    | Encrypted file uploads                                                      |
+| `block/`                                 | Authenticated user blocks                                                   |
+| `pins/`                                  | User-pinned document references                                             |
+| `archive/`                               | Archived data                                                               |
+| `tasks/`                                 | CryptPad's scheduled-task storage                                           |
+| `decrees/decree.ndjson`                  | CryptPad's server-side decree log                                           |
+| `logs/`                                  | Activity logs                                                               |
+| `customize/application_config.js`        | Holds `loginSalt` — written once on first install and never regenerated     |
+
+The daemon runs as UID/GID 4001 while the service runtime runs as root, so `main.ts` pre-creates every one of those directories and `chown`s them before the container starts. A directory that CryptPad cannot write is the usual cause of a daemon that starts and then does nothing.
+
+`/cryptpad/www/common/onlyoffice/dist/` — the per-version OnlyOffice assets — is deliberately **not** a mount. It lives in the image rootfs and is refreshed when the image is rebuilt; mounting an empty volume over it would shadow the content the Dockerfile baked in.
+
+## File Models
+
+One model, plus one read-only view of a file CryptPad owns. The service's own `config.js` is not modelled at all — it is generated from scratch on every start.
+
+| File                    | Format | Modelled                  | Written by                    |
+| ----------------------- | ------ | ------------------------- | ----------------------------- |
+| `store.json`            | JSON   | `FileHelper.json`         | Init and the actions          |
+| `decrees/decree.ndjson` | NDJSON | `FileHelper.string`, read-only | CryptPad                 |
+
+`store.json` holds `mainUrl` and `sandboxUrl` (both `null` until the user picks them), `adminKeys` (the list the **Add Administrator by Public Key** action manages), and `wizardCompletedNotified` (a one-shot latch so the setup-complete notification fires once per install rather than on every container rebuild). It is seeded on every init kind by an empty `merge`, which applies each field's default without disturbing a value already there. A hand edit survives until an action rewrites the same key.
+
+`decree.ndjson` is CryptPad's own append-only log and is **never written from here**. It is modelled only so the read is reactive: the setup-token prompt depends on a line the daemon writes after it first boots, and a plain `readFile` would not re-trigger the init watcher when that file appears.
+
+`config.js` is regenerated into the container's ephemeral rootfs on every start from `store.json` plus upstream's documented defaults. It is not on the volume, and a hand edit does not survive a restart — by design, since the origins it carries have to track what the user selected. Everything it does *not* set is upstream's default or is managed from CryptPad's own `/admin/` panel:
+
+| Setting                                                        | Owned by                        |
+| -------------------------------------------------------------- | ------------------------------- |
+| Main URL (`httpUnsafeOrigin`), Sandbox URL (`httpSafeOrigin`)  | **Set Main / Sandbox URL** actions |
+| Administrator keys (`adminKeys`)                               | **Add Administrator by Public Key** action |
+| Storage paths, ports, log destination                          | This package, fixed             |
+| `loginSalt`                                                    | This package, written once at install |
+| Instance name and branding, registration policy, upload limits, enabled applications, 2FA policy, directory listing | CryptPad's `/admin/` panel |
 
 ## Dependencies
 
 None.
 
+## Network Access and Interfaces
+
+Two interfaces, both bound to the same container port, because the browser — not the server — is what enforces CryptPad's sandbox boundary.
+
+| Interface | Id        | Type | Port | Description                                    |
+| --------- | --------- | ---- | ---- | ---------------------------------------------- |
+| Web UI    | `ui`      | ui   | 3000 | The application, `/admin/`, and `/checkup/`    |
+| Sandbox Origin | `sandbox` | api  | 3000 | The origin the document iframe loads from |
+
+CryptPad requires `httpUnsafeOrigin ≠ httpSafeOrigin`: the sandbox iframe has to come from a different **origin** so same-origin policy isolates it from the application around it. Each MultiHost gets its own hostname and port from StartOS while both target port 3000 in the container, and CryptPad serves the same content regardless of `Host` — its CSP differentiation is by URL path, not by host. So two bindings on one port is the whole mechanism.
+
+The sandbox interface is typed `api` rather than `ui` for one concrete effect: the service page's launch control filters on `type === 'ui'`, so the sandbox never appears as an **Open** button. It does not hide the interface — the Interfaces tab lists and links every interface regardless of type. Its hostname is chosen through the **Set Sandbox URL** action, which is the only mechanism the user has for it.
+
+WebSocket traffic needs no interface of its own. CryptPad's HTTP server intercepts upgrade requests for `/cryptpad_websocket` and proxies them internally to its own WebSocket server on port 3003, so the browser connects to `wss://<main-host>/cryptpad_websocket` over the ordinary interface. Port 3003 is never bound externally.
+
+## Installation and First-Run Flow
+
+Setup is a three-step chain, and the first two block the daemon. Nothing starts until the user has chosen both origins.
+
+An origin is scheme + host + port, so **two ports on one hostname already satisfy CryptPad's requirement** — which is what StartOS produces on a LAN with no extra setup, since the two MultiHosts get different external ports. Two distinct hostnames matter only when serving over a domain, and for a different reason: upstream warns that restrictive networks filter traffic on unusual ports.
+
+1. **Set Main URL** and **Set Sandbox URL** can be completed in either order. Both write to `store.json`; the daemon-start gate is the pair of `critical` tasks described under [Tasks](#tasks), with a matching throw in `main.ts` as a backstop.
+2. Clearing the two tasks unblocks the service but **does not start it** — the user has to press Start. The daemon then bootstraps and writes an install token into its decree log.
+3. **Complete CryptPad Initial Setup** then appears as an `important` task carrying a single-use URL. Opening it runs CryptPad's own wizard: first administrator account, instance name and branding, application selection, registration policy.
+
+When the wizard finishes, the init watcher posts a one-shot **"CryptPad setup complete"** notification — useful as a confirmation if the user walked away mid-wizard. It is latched on `wizardCompletedNotified` so it cannot repeat.
+
+After that, day-to-day administration happens in CryptPad's `/admin/` panel rather than in StartOS.
+
+## Actions
+
+Four user-facing actions and one hidden one. Two of them exist because CryptPad pins itself to a single origin and StartOS cannot guess which.
+
+### Set Main URL
+
+**When to run it:** at install, and any time the address users should reach CryptPad on changes. **What it changes:** `store.json`'s `mainUrl`, which becomes `httpUnsafeOrigin` in the regenerated `config.js`. **Cost:** the daemon restarts. **Repeat safety:** idempotent; re-running with the same value is a no-op.
+
+It refuses a URL whose origin matches the current sandbox URL, and `main.ts` repeats that check before starting — a matching pair would collapse the sandbox boundary rather than fail loudly. **What happens next:** the daemon restarts on the new origin; already-open browser tabs keep working until they are reloaded.
+
+### Set Sandbox URL
+
+The same shape as Set Main URL, bound to the `sandbox` interface and `store.json`'s `sandboxUrl`. **When to run it:** at install, and after anything that reassigns ports — notably a restore. **This is the only way to pick the sandbox origin**, because the sandbox interface is not launchable from the service page.
+
+### Complete CryptPad Initial Setup
+
+**Hidden — not user-facing as an action.** It is surfaced by the `setup-token-pending` task and should be reached that way; a support agent should never send a user to the actions list for it.
+
+**What it returns:** a `/install/#<token>` URL, masked and copyable, with no QR. The token is a credential — whoever holds it creates the first administrator on an instance that has none — so it follows the fleet's masked-and-copyable convention for secrets, and the QR is dropped because rendering the same value as a scannable image would defeat masking the text.
+
+**Cost:** none; it reads the decree log off the volume, so it answers whether or not the service is running. **Repeat safety:** safe to re-run — before the daemon has bootstrapped it says so and asks for another thirty seconds; after the wizard has completed it reports that and points at `/admin/`.
+
+### Add Administrator by Public Key
+
+**When to run it:** to recover administrator access when the install-token URL was missed, or to add and remove administrators without going through the running application. The day-to-day path is CryptPad's own `/admin/#support` panel.
+
+**What it changes:** `store.json`'s `adminKeys`, which becomes the `adminKeys` array in `config.js`. **Cost:** the daemon restarts. **Repeat safety:** the submitted list is the complete new state, not a delta — anything not in it is revoked on the next restart. There is no separate remove action.
+
+**Outputs:** the saved list, one copyable row per key, so an accepted key can be told from a rejected one.
+
+Three things about it generate support traffic:
+
+**The two administrator lists.** CryptPad keeps administrators in two independent places, and this action reaches one of them.
+
+| Admin created by                 | Stored in                              | Appears in this action | Removable from `/admin/` |
+| -------------------------------- | -------------------------------------- | ---------------------- | ------------------------ |
+| Setup wizard, or promoted in-app | The decree log                         | **No**                 | Yes                      |
+| This action                      | `config.js`, from `store.json`         | Yes                    | **No**                   |
+
+Upstream labels the second group in `/admin/` as *"Admin added into config.js. Can only be removed by editing the config file."* Here the config file is generated, so the equivalent of editing it is re-running this action with the row deleted. The practical consequence — **on a fresh install this list is empty even though a working administrator already exists** — is correct behavior and not a missing migration.
+
+**Adding a key that is already a decree-log admin shadows it.** `lib/env.js` seeds `Env.admins` / `Env.adminsData` from `config.adminKeys` before decrees replay, and `ADD_ADMIN_KEY` returns early for a key already in `Env.admins` — so it never reaches `adminsData`, and the only surviving row is the `config.js` one, which by definition renders without a Remove button. Nothing is destroyed and it is reversible: delete the key here, submit, and after the restart the decree replays normally and the key is removable again.
+
+**Validation is syntactic, and that is the ceiling rather than a shortcut.** A key is exactly 44 characters (43 base64 characters plus `=`), with `-` accepted as the escaped form of `/` and no `_` in the alphabet, mirroring upstream's `Keys.canonicalize`. What it cannot do is confirm an account with that key exists — upstream cannot either. CryptPad is end-to-end encrypted and the server holds opaque login blocks rather than a queryable roster, so granting admin means "whoever holds the private half of this key", not "this registered user". A correctly-shaped typo is accepted and becomes an entry nobody can use.
+
+Length is the part worth guarding: a malformed key is filtered out of `Env.admins` by `lib/env.js` but kept verbatim in `Env.adminsData`, which is what `/admin/` renders — so it grants nothing while leaving a junk row that the panel offers no way to remove.
+
+### Run Diagnostics
+
+**When to run it:** to verify an install, or as the first step on any "CryptPad looks broken" report. **What it returns:** the URL of CryptPad's built-in `/checkup/` self-test, prefixed with the configured main URL so the tests run against the right origin. **What it changes:** nothing. **Cost:** none.
+
+A correctly configured instance reports **51 of 55**, and the four failures are expected:
+
+| Test | Reports                             | Why                                                                             | Fixable                  |
+| ---- | ----------------------------------- | ------------------------------------------------------------------------------- | ------------------------ |
+| 14   | Encrypted support tickets not enabled | Optional feature, off by default                                              | Yes — `/admin/` → Support |
+| 34   | No terms of service                 | Optional instance content                                                       | Yes — `/admin/`          |
+| 36   | No privacy policy                   | Optional instance content                                                       | Yes — `/admin/`          |
+| 54   | HSTS not required                   | StartOS terminates TLS at the platform edge; CryptPad's server sees plain HTTP | **No**                   |
+
+The checkup also flags `/customize/application_config.js` as a customized asset. That is expected and load-bearing — it is where `loginSalt` lives.
+
+## Tasks
+
+Three tasks, and the first two are the daemon-start gate. This is the section to read when a user reports that CryptPad will not start and the ordinary controls have disappeared.
+
+| Task (`replayId`)                                     | Severity    | Raised when                                                  | Cleared when                                          |
+| ----------------------------------------------------- | ----------- | ------------------------------------------------------------ | ----------------------------------------------------- |
+| `main-url-not-set` / `main-url-unavailable`           | `critical`  | No main URL saved, or the saved one is no longer a live address | A currently-resolvable main URL is saved            |
+| `sandbox-url-not-set` / `sandbox-url-unavailable`     | `critical`  | The same, for the sandbox URL                                 | The same                                              |
+| `setup-token-pending`                                 | `important` | Both URLs set, and the decree log has an install token but no admin key yet | Any `ADD_ADMIN_KEY` decree appears |
+
+All three are maintained by a reactive watcher that re-runs whenever the store, the live address list, or the decree log changes; they can therefore return on their own. The `-unavailable` variants are the ones that fire after a restore, since a restored package is assigned new ports and the saved URLs stop resolving.
+
+The setup task is deliberately `important` rather than `critical`. Once both URLs are set the daemon *can* run, so blocking startup on a follow-up reminder would be wrong — and an earlier revision that made it `critical` produced an unrecoverable deadlock, where the task blocked the service and the action to clear it could not be run while the service was stopped.
+
+Setup completion is detected by the presence of an `ADD_ADMIN_KEY` decree, not by the token's removal: CryptPad never emits a paired `RM_INSTALL_TOKEN`, so the token line stays in the log forever and scanning for its removal would leave the task pending indefinitely.
+
+## Health Checks
+
+One check, on the only daemon. It probes the same endpoint CryptPad's own client fetches at boot.
+
+| Check     | Displayed       | Method                              | Grace  |
+| --------- | --------------- | ----------------------------------- | ------ |
+| `primary` | "Web Interface" | HTTP GET `localhost:3000/api/config` | 60s   |
+
+A 200 means the Node server is up, the config parsed, and the API is answering — stronger than a port-listening check, since the port can be open before the application is serving. A failure that persists past the grace period means the config did not parse or the daemon died; the service log will say which.
+
+The grace period is generous because upstream's entrypoint runs `npm run build` on **every** container start, regenerating a few dozen HTML files before `node server.js`. Several seconds pass with the port closed, and a tighter window would flash a red failure on every ordinary restart. Expect a handful of `ECONNREFUSED` lines from the health check itself during that window — they come from `checkWebUrl` and cannot be suppressed from the package; the grace period governs the reported status, not the logging.
+
+This is the only check on purpose. An earlier revision had four more (`admin`, `checkup`, `sandbox-security`, `onlyoffice`); once `/api/config` returns 200 they all turn green together and add no diagnostic value. **Run Diagnostics** is the deeper probe.
+
+## Backups and Restore
+
+The whole `main` volume is copied wholesale — `sdk.Backups.ofVolumes('main')`. Nothing is excluded, and nothing is dumped-and-replayed, so what comes back is the files as they were.
+
+That covers every pad and upload, the decree log, `store.json`, OnlyOffice's install state, and `customize/application_config.js` — which is the one that matters most, because it holds `loginSalt`. Restore replays init with `kind === 'install'`, and the file-existence guard in `init/writeLoginSalt.ts` is what stops a fresh salt being minted over the restored one; regenerating it would invalidate every existing user's password with no recovery path.
+
+**Changing the main URL does not invalidate logins**, and neither does a restore. `Cred.deriveFromPassphrase` salts scrypt with the username plus `AppConfig.loginSalt`; the origin is not an input. There is a misleading failure mode worth recognising, though: `customSalt()` falls back to `''` when `loginSalt` is not a string, so a page that has not fully initialised for this instance derives different keys from correct credentials and the user is told **"invalid username or password"** rather than anything about origins.
+
+A restored instance has one thing left to do: **re-pick both URLs.** New ports are assigned on restore, so the saved values no longer resolve, and the watcher raises `main-url-unavailable` / `sandbox-url-unavailable`. Documents, accounts, administrators and branding are all already back — only the addresses change.
+
+Expect the restore itself to take **tens of minutes** even for a near-empty instance, against a backup that finishes in seconds. This is not the OnlyOffice bake: a fresh install of the identical `.s9pk` completes in under a minute, so the cost is in the restore path rather than in unpacking the image. Nothing in this package can shorten it.
+
 ## Limitations and Differences
 
-1. **No email integration.** CryptPad has no built-in SMTP support in any current release; account flows are end-to-end encrypted and local. The "support help-desk" feature uses CryptPad's own E2E-encrypted in-app messaging, not email. There is no StartOS SMTP action because there is nothing on the CryptPad side that would consume credentials. If a future CryptPad release adds SMTP, this package will revisit. (Upstream issue [#1047](https://github.com/cryptpad/cryptpad/issues/1047) tracks the open feature request.)
-2. **Two URLs are required.** Without two distinct hostnames (different origins), CryptPad cannot start. Users on a single-domain setup will need to either provision a second hostname (e.g., a private domain in StartOS, or a Tor service) or configure the sandbox URL on the same hostname with a different subdomain prefix.
-3. **`loginSalt` is set once and never changed.** Per upstream documentation, changing the login salt invalidates every existing user's password hash. The package writes it on first install and the file-existence guard in init prevents regeneration. Restoring a backup preserves the salt.
-4. **`adminKeys` in `config.js` is one of two admin lists.** CryptPad's in-app `/admin/` panel maintains its own admin list internally; StartOS-managed `adminKeys` and in-app admins persist independently. The intended workflow is: use the install-token URL to create the first admin (wizard adds them in-app); use the StartOS action only for emergencies (lost access, no other admin available) or bulk operations.
-5. **No HSTS headers.** HSTS is controlled by StartOS at the TLS-termination edge; service packages cannot configure it. Confirmed against the StartOS source: `Strict-Transport-Security` appears nowhere in the codebase, and the hardening headers the OS does apply (`add_security_headers` in `shared-libs/crates/start-core/src/net/static_server.rs`) set CSP and `X-Content-Type-Options` on StartOS UI-origin responses only. CryptPad's `/checkup/` **test 54** reports this — it does not affect functionality, and no package-side change can resolve it. Adding HSTS to the OS reverse proxy would be a platform-level improvement (see `TODO.md`).
-6. **`x86_64` and `aarch64` only.** The upstream image does not publish `riscv64`.
-7. **Single-node only.** Multi-node clustered CryptPad setups are not supported by this package.
-8. **2FA recovery, password resets, support help-desk auto-init, public directory listing** — all live in the in-app `/admin/` panel; not exposed as StartOS actions.
+1. **Two origins are mandatory.** CryptPad will not start with one, and the two must differ in hostname or port. On a LAN this is automatic; over a domain it means provisioning a second hostname.
+2. **An untrusted Root CA breaks CryptPad specifically, and looks like a broken package.** StartOS issues certificates for `.local`, IP and `.onion` addresses from the server's own Root CA. For a single-origin service the user clicks through the warning once; that escape hatch exists only for top-level navigation, and CryptPad loads its sandbox in an iframe, for which browsers offer no certificate exception at all. The symptom is distinctive: the address bar shows the *main* origin while the error names the *sandbox* origin on a different port, with no dismiss option. Nothing in the package can fix it — the second origin is mandated by CryptPad and certificate trust is a client-side decision. User-facing mitigations are in `instructions.md`.
+3. **The launch button may open an address CryptPad rejects.** StartOS binds an interface to every enabled gateway address and the launcher picks one by heuristic (`InterfaceService.launchableAddress`: public domain → WAN IPv4 → private domain → mDNS, biased by how the admin is currently reaching StartOS). CryptPad accepts exactly one origin and answers every other with *"This page can only be accessed via …"*, usually stalling at *Loading…* rather than redirecting. The launcher has no knowledge of the saved main URL and no way to acquire any — interfaces carry no notion of a primary address. Established sessions are unaffected until reloaded; the rejection is a page-load check, not a per-request one.
+4. **`loginSalt` is set once and never changed.** Changing it would invalidate every existing user's password hash, so the package writes it at first install and the init guard prevents regeneration. A restore preserves it.
+5. **The `adminKeys` list is one of CryptPad's two administrator lists** and cannot remove administrators from the other. See [Actions](#actions).
+6. **HSTS cannot be set.** StartOS terminates TLS at the platform edge and emits no `Strict-Transport-Security`; the container only ever sees plain HTTP. `/checkup/` test 54 reports this on every StartOS install and no package-side change can resolve it. It does not affect functionality.
+7. **No email integration.** CryptPad ships no SMTP support in any current release — account flows are end-to-end encrypted and local, and the support help-desk uses CryptPad's own in-app messaging. There is no SMTP action because nothing on the CryptPad side would consume the credentials.
+8. **x86_64 and aarch64 only.** The upstream image publishes no riscv64.
+9. **Single-node only.** Clustered CryptPad deployments are not supported.
+10. **This is not an upgrade path from the StartOS 0.3.x CryptPad package.** That package is a different layout — six volumes under `/cryptpad/` — wrapping a CryptPad release from several years earlier, and nothing maps across. `canMigrateFrom` is derived from the version graph and cannot be narrowed, so StartOS will regard this as a valid upgrade and run this package's `up` migration, which is empty. Anyone coming from it should export their drive from the old instance first and re-import after installing this one. Nobody has run that path on a real migrated server, so treat it as unsupported rather than assuming a particular failure mode.
+11. **Some log lines are normal and should not be investigated.** `HTTP_404` on OnlyOffice assets (`plugins.json`, `themes.json`, `document_editor_service_worker.js`, an icon or two) while an editor loads — the bundle probes for optional files CryptPad's trimmed distribution does not ship, and upstream's own flagship instance 404s on the same paths. `Error while fetching URL … ECONNREFUSED` during the first seconds of a start, from the health check. `HK_GET_OLDER_HISTORY` with an all-zeros channel id, which upstream logs at `ERROR` and is benign.
 
-## Known Limitation: Not an Upgrade Path from the 0.3.x CryptPad Package
-
-**This package is a fresh install. It does not migrate data from the StartOS 0.3.x CryptPad service, and must not be presented as if it does.**
-
-The retired package (`Start9Labs/cryptpad-startos`, still in 0.3.x `manifest.yaml` format) wraps **CryptPad 5.2.1** and stores data across **six separate volumes** — `main`, `blob`, `block`, `customize`, `data`, `datastore`, mounted under `/cryptpad/`. This package wraps a 2026 CryptPad release and uses **one** `main` volume with subdirectories under `/data`. Nothing maps across automatically, and the upstream gap is roughly four years of data-format history.
-
-Three specific hazards:
-
-1. **`canMigrateFrom` cannot be narrowed.** It is derived from the version graph, and `other: []` yields `<=current` — the widest possible range (`versions.md`, "canMigrateFrom Is Derived, Not Curated"). Because `5.2.1` sorts below this package's version, StartOS will regard this as a valid upgrade and run our `up` migration, **which is empty**. There is no supported way to make the platform refuse.
-2. **Volume-name collision.** The old package also had a volume named `main`, holding CryptPad 5.2.1's `/cryptpad/main` contents — not the `store.json` / `datastore/` layout this package expects.
-3. **Unverified.** Nobody has run this path on a real 0.3.5.1 → 0.4.0 migrated server. Treat it as unsupported rather than assuming a particular failure mode.
-
-**Guidance for anyone coming from the old package:** export your pads from the running 0.3.x instance first (CryptPad's own drive export), then install this as a new service and re-import. Do not expect an in-place upgrade to carry documents over.
-
-This is the same shape of problem StartOS's own [0.4.0 update guide](https://docs.start9.com/) calls out for Ghost and Synapse under "Services with special handling", and CryptPad arguably belongs on that list — see `TODO.md`.
-
-## Known Limitation: the Sandbox Iframe and the Root CA
-
-The two-origin design has a consequence that is easy to miss and looks like a broken package: **the sandbox origin needs a trusted certificate, and the browser will not let the user click through to get one.**
-
-StartOS issues certificates for `.local`, IP and `.onion` addresses from the server's own Root CA (`start-os/docs/src/authorities.md`); third-party CAs will not issue for those. A browser that has not trusted that Root CA therefore warns on both of CryptPad's origins. For a single-origin service the user clicks *"Accept the risk and continue"* once and is done. That escape hatch **only exists for top-level navigation** — browsers do not offer certificate exceptions for subresources, and CryptPad loads its sandbox in an iframe.
-
-The observed symptom is confusing in a specific way worth recognising: the address bar shows the **main** origin while the error names the **sandbox** origin (a different port), and there is no dismiss option. Seen on a fresh install in v1 testing (checklist #4) — an earlier install had worked only because the sandbox origin's certificate had already been accepted at its previous port.
-
-Nothing in the package can fix this: the second origin is mandated by CryptPad's sandbox model, and certificate trust is a client-side decision. Mitigations are documented for users in `instructions.md`: trust the Root CA (the real fix — it survives restores and port changes and covers every other service), or grant the sandbox origin its own exception by opening it as a top-level page (a stopgap that must be repeated whenever ports change).
-
-One trap worth knowing when explaining the stopgap: users must **click the address from the Interfaces tab**, not type it. A bare `host:port` in the address bar is parsed as a URI *scheme* plus path, and the browser offers to hand it to an external application ("no apps available") rather than loading a page — a failure that looks nothing like a certificate problem. Hit during v1 testing while following an earlier draft of these instructions.
-
-This is a strong argument for using real domains with an ACME certificate on any instance with non-technical users.
-
-## Known Limitation: the Launcher vs. CryptPad's Single-Origin Rule
-
-StartOS's model is that a package declares *what* it exposes and the **user** decides *where* it is reachable — an interface is bound to every enabled gateway address at once (see `interfaces.md`). CryptPad breaks that assumption: it accepts exactly one origin (`httpUnsafeOrigin`) and rejects all others with *"This page can only be accessed via …"*, typically stalling at *Loading…* rather than redirecting.
-
-The consequence is that **StartOS's launch button may open an address CryptPad rejects.**
-
-The selection logic is `InterfaceService.launchableAddress` (`start-os/web/ui/.../interfaces/interface.service.ts`). It prefers, in order: public domain → WAN IPv4 → private domain → mDNS, and it biases toward the address family matching **how the user is currently reaching StartOS** (`config.accessType` / `config.hostname`). So an administrator browsing StartOS at `my-server.local` gets handed the `.local` CryptPad address — regardless of which URL was chosen as Main. The launcher has no knowledge of `store.mainUrl`, and no way to acquire any.
-
-**There is no SDK mechanism to fix this.** Interfaces carry no notion of a primary or preferred address. The reference implementation for the changeable-URL pattern, `ghost-startos`, exports a plain interface exactly as this package does — but Ghost still *serves* on every hostname (its `url` setting only affects generated links), so the mismatch is invisible there. CryptPad is unusual in hard-rejecting.
-
-Mitigation is documented in `instructions.md`: use the Main URL directly, or disable the unused addresses on the service's **Interfaces** tab so the launcher has only the correct one to offer.
-
-Established sessions are unaffected by an origin change until reloaded — the WebSocket reconnects and edits continue to save. The rejection is a page-load check, not a per-request one. Confirmed in v1 testing (checklist #15).
-
-
-## Known Limitation: Expected Log Noise
-
-Three recurring log patterns are normal and should not be investigated as faults.
-
-**1. `HTTP_404` on OnlyOffice assets while an editor loads.** Typically:
-
-```
-HTTP_404 /common/onlyoffice/dist/v9/document_editor_service_worker.js
-HTTP_404 /common/onlyoffice/dist/v9/plugins.json
-HTTP_404 /common/onlyoffice/dist/v9/themes.json
-HTTP_404 /common/onlyoffice/dist/v9/web-apps/.../img/doc-formats/formats@2.5x.svg
-```
-
-The OnlyOffice bundle probes for optional files that CryptPad's trimmed distribution does not ship. **This is not an incomplete bake** — verified by requesting the same four paths from the upstream flagship instance `cryptpad.fr`, which returns 404 for all of them while `.../documenteditor/main/index.html` returns 200. CryptPad logs them at `INFO` for the same reason. Editors load and function normally.
-
-**2. `Error while fetching URL: http://localhost:3000/api/config` + `ECONNREFUSED` at startup.** The `ready` health check polls once per second before the daemon binds its port. The upstream entrypoint runs `npm run build` on every container start (regenerating ~25 `www/*/index.html` files) before `node server.js`, so there is a several-second window where the port is closed. Expect a handful of these on every start; they stop the moment the server binds. The stack trace comes from `checkWebUrl` itself and cannot be suppressed from the package — `gracePeriod` governs the reported *status*, not the logging.
-
-**3. `HK_GET_OLDER_HISTORY` with an all-zeros channel id.** History-keeper chatter, logged at `ERROR` by upstream but benign.
-
-## What Is Unchanged from Upstream
-
-- All CryptPad application features (documents, spreadsheets, presentations, kanban, whiteboard, code editor, forms, slides) work exactly as documented upstream.
-- The `/admin/` panel works as documented once an administrator account exists.
-- User registration, password reset, and account features work normally.
-- Storage quotas, drive usage, and all CryptPad user-facing settings are unchanged.
-- OnlyOffice editor integration is unchanged from upstream — only difference is install-time vs. first-run timing.
-- The CryptPad federation API and inter-instance features are unchanged.
-
-## Building from Source
-
-```bash
-make            # build for both x86_64 and aarch64
-make x86_64     # single-arch
-make aarch64
-```
-
-**Build-time network access required.** The Dockerfile runs `install-onlyoffice.sh` which fetches:
-
-- `github.com/cryptpad/onlyoffice-builds.git` (git clone)
-- Release archives from `github.com/cryptpad/onlyoffice-editor/releases/download/...`
-- Release archives from `github.com/cryptpad/onlyoffice-x2t-wasm/releases/download/...`
-- `raw.githubusercontent.com/ONLYOFFICE/web-apps/master/LICENSE.txt` (license-header curl, bypassed by `--accept-license` after the fetch)
-
-Total payload added on top of the upstream image: ~210 MB. Offline builds are not supported in this version.
-
-## Contributing
-
-See [AGENTS.md](AGENTS.md) for how this repo is developed — it points at the StartOS packaging
-guide's recipe index, which is the starting point for any change. [TODO.md](TODO.md) is the live
-worklist, [NextSteps.md](NextSteps.md) is the manual test checklist that gates a release, and
-[UPDATING.md](UPDATING.md) covers upstream version bumps.
-
-Fork, branch from `master`, and open a pull request. Before submitting, `npm run check` and
-`npm test` must both be green and `make` must pack cleanly.
-
-`npm test` runs the decree-log parser's regression tests via `node --test` — no test framework
-and no devDependencies, since Node 22 strips TypeScript types natively. The parser
-(`startos/setupState.ts`) is deliberately import-free so it can be tested without the SDK; it is
-the one piece of hand-rolled logic here that tracks an upstream format with no compatibility
-guarantee, and `UPDATING.md` flags it as the highest-risk thing to re-verify on a version bump.
-
-Tests live in `test/`, not beside the source. The SDK's build gate type-checks and lints
-TypeScript under `startos/` only, and a test file there would have to satisfy both — which the
-`.ts` import extension Node's resolver requires makes awkward. Keeping tests outside means they
-are neither type-checked nor linted; running them is what validates them. See the note at the top
-of `test/setupState.test.ts`.
+---
 
 ## Quick Reference for AI Consumers
 
 ```yaml
 package_id: cryptpad
-license: AGPL-3.0
-architectures: [x86_64, aarch64]
+image: built from ./Dockerfile, FROM cryptpad/cryptpad
+architectures:
+  - x86_64
+  - aarch64
+subcontainers:
+  - cryptpad-sub # the only container
 volumes:
-  main: /data
-mounts:
-  - main:/data
-  - main/customize:/cryptpad/customize
-  - main/onlyoffice-conf:/cryptpad/onlyoffice-conf
-ports:
-  ui: 3000          # main app + sandbox + WebSocket entry point
-                    # NOTE: sandbox iframe binds the same container port via
-                    # a separate MultiHost; browser sees a different origin.
-                    # WebSocket /cryptpad_websocket is proxied internally to
-                    # port 3003 by CryptPad — never bound externally.
-interfaces:
-  ui:      { type: ui,  binds_port: 3000 }
-  sandbox: { type: api, binds_port: 3000 }   # not clickable in launcher
-runtime_user: { uid: 4001, gid: 4001 }
-dependencies: none
+  main: /data # also subpath-mounted at /cryptpad/customize and /cryptpad/onlyoffice-conf
+file_models:
+  - store.json # mainUrl, sandboxUrl, adminKeys, wizardCompletedNotified
+  - decrees/decree.ndjson # read-only; written by CryptPad
 startos_managed_env_vars:
-  - CPAD_CONF                # points at pre-written config.js
-  - CPAD_MAIN_DOMAIN         # = httpUnsafeOrigin
-  - CPAD_SANDBOX_DOMAIN      # = httpSafeOrigin
+  - CPAD_CONF # points at the pre-written config.js
+  - CPAD_MAIN_DOMAIN
+  - CPAD_SANDBOX_DOMAIN
+dependencies: []
+interfaces:
+  ui: { type: ui, port: 3000 }
+  sandbox: { type: api, port: 3000 } # same container port, different origin
 actions:
   - set-main-url
   - set-sandbox-url
-  - show-setup-token-url     # hidden, surfaced via critical task
+  - show-setup-token-url # hidden; surfaced by the setup-token-pending task
   - add-admin-key
   - run-diagnostics
+tasks:
+  - { action: set-main-url, severity: critical }
+  - { action: set-sandbox-url, severity: critical }
+  - { action: show-setup-token-url, severity: important }
 health_checks:
-  - http_get: http://localhost:3000/api/config
-backup_volumes: [main]
-backup_excludes: []
-critical_tasks_on_install:
-  - main-url-not-set         # → set-main-url
-  - sandbox-url-not-set      # → set-sandbox-url
-important_tasks_on_install:
-  - setup-token-pending      # → show-setup-token-url (after both URLs set + daemon up)
+  - primary # displayed "Web Interface"
 ```
