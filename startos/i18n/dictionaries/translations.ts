@@ -1,12 +1,8 @@
 import { LangDict } from './default'
 
-/**
- * Translations are populated incrementally as components are added. Empty
- * dictionaries are valid here — the SDK falls back to DEFAULT_LANG for any
- * missing key.
- */
 export default {
   es_ES: {
+    0: 'Iniciando CryptPad',
     1: 'Interfaz web',
     2: 'CryptPad está listo',
     3: 'CryptPad no está listo',
@@ -56,6 +52,7 @@ export default {
     47: 'Debe ser una clave de 44 caracteres que termine en "=", o un enlace de perfil completo con el formato [usuario@instancia/clave=].',
   },
   de_DE: {
+    0: 'CryptPad wird gestartet',
     1: 'Weboberfläche',
     2: 'CryptPad ist bereit',
     3: 'CryptPad ist nicht bereit',
@@ -105,6 +102,7 @@ export default {
     47: 'Muss ein 44 Zeichen langer Schlüssel sein, der auf "=" endet, oder ein vollständiger Profil-Link im Format [benutzer@instanz/schluessel=].',
   },
   pl_PL: {
+    0: 'Uruchamianie CryptPada',
     1: 'Interfejs webowy',
     2: 'CryptPad jest gotowy',
     3: 'CryptPad nie jest gotowy',
@@ -154,6 +152,7 @@ export default {
     47: 'Musi być kluczem o długości 44 znaków kończącym się na "=" albo pełnym linkiem profilu w formacie [uzytkownik@instancja/klucz=].',
   },
   fr_FR: {
+    0: 'Démarrage de CryptPad',
     1: 'Interface web',
     2: 'CryptPad est prêt',
     3: "CryptPad n'est pas prêt",
