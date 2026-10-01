@@ -35,7 +35,7 @@ import { sdk } from '../sdk'
  * The model is a raw string rather than a parsed structure because the log is
  * newline-delimited JSON with heterogeneous, positionally-encoded rows; the
  * parsing (and its tolerance for partial trailing writes) lives in
- * `decrees.ts`. A missing or empty file reads back as `null`.
+ * `setupState.ts`. A missing or empty file reads back as `null`.
  *
  * Read-only by convention: CryptPad owns this file. Never write it from here.
  */

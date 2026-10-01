@@ -56,16 +56,16 @@ curl -s https://hub.docker.com/v2/repositories/cryptpad/cryptpad/tags/version-<X
    | What to check | Upstream file | Why it matters |
    |---|---|---|
    | `[ ! -f "$CPAD_CONF" ]` guard; required env vars | `docker-entrypoint.sh` | Our pre-written `config.js` depends on this guard to bypass the entrypoint's auto-generation branch |
-   | `ADD_INSTALL_TOKEN` decree shape; the zero-admins gate; the `/install/#<token>` URL | `lib/api.js` | `startos/decrees.ts` parses the log by hand |
-   | `ADD_ADMIN_KEY` is what lands in the log | `lib/decrees.js`, `lib/commands/admin-rpc.js` | The wizard sends `['ADD_FIRST_ADMIN', ['ADD_ADMIN_KEY', [key]]]`, but `adminDecree` reads `data[1]`, so the log line is `["ADD_ADMIN_KEY", [key], "", ts]`. That's the completion signal `decrees.ts` keys on — if the envelope handling ever changes, the setup task stops clearing |
+   | `ADD_INSTALL_TOKEN` decree shape; the zero-admins gate; the `/install/#<token>` URL | `lib/api.js` | `startos/setupState.ts` parses the log by hand |
+   | `ADD_ADMIN_KEY` is what lands in the log | `lib/decrees.js`, `lib/commands/admin-rpc.js` | The wizard sends `['ADD_FIRST_ADMIN', ['ADD_ADMIN_KEY', [key]]]`, but `adminDecree` reads `data[1]`, so the log line is `["ADD_ADMIN_KEY", [key], "", ts]`. That's the completion signal `setupState.ts` keys on — if the envelope handling ever changes, the setup task stops clearing |
    | `/cryptpad_websocket` upgrade proxy → `websocketPort` | `lib/http-worker.js` | Justifies never binding 3003 externally |
    | `setHeaders` CSP/COEP/CORP behavior | `lib/http-worker.js` | Justifies the "no in-container reverse proxy" rule in `Dockerfile` |
    | `--accept-license` / `--trust-repository`; `dist/` vs `onlyoffice-conf/` split | `install-onlyoffice.sh` | The OnlyOffice bake and the `onlyoffice-conf` volume mount |
    | UID/GID still 4001 | `Dockerfile` | Every `chown` in `startos/main.ts` and `startos/init/writeLoginSalt.ts` |
    | The IIFE module-factory wrapper | `customize.dist/application_config.js` | `writeLoginSalt.ts` reproduces this shape verbatim; a mismatch throws in the browser and hangs the SPA |
-   | Port defaults, `installMethod`, `httpAddress`, and every path key | `config/config.example.js` | `startos/upstream-defaults.ts` and `startos/cryptpadConfig.ts` |
+   | Port defaults, `installMethod`, `httpAddress`, and every path key | `config/config.example.js` | `startos/utils.ts` and `startos/cryptpadConfig.ts` |
 
-4. Update the `@<version>` markers in comments across `Dockerfile`, `startos/upstream-defaults.ts`,
+4. Update the `@<version>` markers in comments across `Dockerfile`, `startos/utils.ts`,
    `startos/cryptpadConfig.ts`, `startos/setupState.ts`, `startos/main.ts`, `startos/interfaces.ts`.
 5. Run `npm test`. The decree-log parser has regression tests (`test/setupState.test.ts`)
    covering the shapes upstream actually emits. They will not catch a *new* decree verb, but they

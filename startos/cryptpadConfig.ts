@@ -3,7 +3,7 @@ import {
   UPSTREAM_HTTP_PORT,
   UPSTREAM_HTTP_SAFE_PORT,
   UPSTREAM_INSTALL_METHOD,
-} from './upstream-defaults'
+} from './utils'
 
 /**
  * Generate the contents of config.js — the file CryptPad's Node server

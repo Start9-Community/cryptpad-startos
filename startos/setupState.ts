@@ -9,7 +9,7 @@
  * it free of imports means the test runs under plain `node --test` without
  * pulling in the SDK, the manifest, or any StartOS runtime.
  *
- * The I/O half lives in `decrees.ts`, which reads the file through the
+ * The I/O half lives in `utils.ts`, which reads the file through the
  * `decreeLog` file model and hands the raw contents here.
  *
  * # Decree shape
