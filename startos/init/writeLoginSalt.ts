@@ -1,7 +1,7 @@
 import { utils } from '@start9labs/start-sdk'
 import { chown, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { sdk } from '../sdk'
-import { CRYPTPAD_GID, CRYPTPAD_UID } from '../upstream-defaults'
+import { CRYPTPAD_GID, CRYPTPAD_UID } from '../utils'
 
 /**
  * Install-only — write loginSalt to the volume's customize/application_config.js

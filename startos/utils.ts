@@ -1,6 +1,52 @@
 import { T } from '@start9labs/start-sdk'
+import { decreeLog } from './fileModels/decreeLog'
 import { sdk } from './sdk'
-import { UPSTREAM_HTTP_PORT } from './upstream-defaults'
+import { parseSetupState } from './setupState'
+
+/**
+ * Constants extracted from upstream's config/config.example.js at tag 2026.5.1.
+ * Re-verify if you bump CryptPad version:
+ *   https://github.com/cryptpad/cryptpad/blob/2026.5.1/config/config.example.js
+ *
+ * The point of these constants is to make every "magic number" in the wrapper
+ * traceable to a specific upstream commit so a future maintainer can grep for
+ * the constant name and find both the StartOS-side use and the upstream source.
+ */
+
+/** httpPort — main HTTP listener; the StartOS edge proxy targets this. */
+export const UPSTREAM_HTTP_PORT = 3000 as const
+
+/** httpSafePort — upstream's dev-only fallback for serving sandbox content
+ *  on a second port when only one domain is available. We have two real
+ *  domains via two MultiHosts on different hostnames, so this port is never
+ *  reached externally. Documented here for grep-ability. */
+export const UPSTREAM_HTTP_SAFE_PORT = 3001 as const
+
+/** websocketPort — CryptPad's HTTP server on uiPort intercepts upgrade
+ *  requests for /cryptpad_websocket and proxies them internally to this
+ *  port (lib/http-worker.js@2026.5.1: server.on('upgrade', wsProxy.upgrade)).
+ *  Declared for documentation; never bound externally. */
+export const UPSTREAM_WEBSOCKET_PORT = 3003 as const
+
+/** Upstream's docker-entrypoint.sh sets installMethod via sed when generating
+ *  config.js from scratch. We bypass the entrypoint's auto-generation branch
+ *  via CPAD_CONF, so we must preserve this value ourselves in the generated
+ *  config (CryptPad's telemetry uses it). */
+export const UPSTREAM_INSTALL_METHOD = 'docker' as const
+
+/** Upstream's docker-entrypoint.sh sets httpAddress via sed when generating
+ *  config.js from scratch. Same preservation reason as installMethod. */
+export const UPSTREAM_HTTP_ADDRESS = '0.0.0.0' as const
+
+/** CryptPad's container user — upstream Dockerfile@2026.5.1:
+ *    addgroup -S cryptpad -g 4001 && adduser -S cryptpad
+ *  Any file or directory on the `main` volume that CryptPad needs to read
+ *  or write must be chown'd to this UID/GID. The StartOS service runtime
+ *  runs as root, so anything we create from package code defaults to root
+ *  ownership and is unreadable by the cryptpad user inside the container
+ *  unless we explicitly chown it. */
+export const CRYPTPAD_UID = 4001 as const
+export const CRYPTPAD_GID = 4001 as const
 
 /** CryptPad HTTP server — main app, admin, checkup, sandbox, WebSocket proxy.
  *  Both MultiHost interfaces (ui, sandbox) bind this same port; CryptPad
@@ -52,4 +98,19 @@ export async function getMainUrls(effects: T.Effects): Promise<string[]> {
  *  through the Set Sandbox URL action (which calls this). */
 export async function getSandboxUrls(effects: T.Effects): Promise<string[]> {
   return getInterfaceUrls(effects, 'sandbox-multi', 'sandbox')
+}
+
+/**
+ * Snapshot read of the setup state, for use inside actions.
+ *
+ * `.once()` rather than `.const(effects)` on purpose: an action wants the
+ * current value, not a subscription that would re-trigger its caller. The
+ * reactive path — the one that has to notice the daemon creating this file —
+ * lives in `init/setup.ts` and reads the same model with `.const(effects)`.
+ *
+ * The parsing itself lives in `setupState.ts`, which is import-free so it can
+ * be unit-tested without the SDK. See the comment there.
+ */
+export async function readSetupState() {
+  return parseSetupState(await decreeLog.read((s) => s).once())
 }

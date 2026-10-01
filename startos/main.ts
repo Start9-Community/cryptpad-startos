@@ -3,8 +3,7 @@ import { generateCryptpadConfig } from './cryptpadConfig'
 import { storeJson } from './fileModels/store.json'
 import { i18n } from './i18n'
 import { sdk } from './sdk'
-import { CRYPTPAD_GID, CRYPTPAD_UID } from './upstream-defaults'
-import { uiPort } from './utils'
+import { CRYPTPAD_GID, CRYPTPAD_UID, uiPort } from './utils'
 
 /**
  * Subdirectories under the main volume that CryptPad writes to. The volume

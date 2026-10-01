@@ -1,4 +1,4 @@
-import { readSetupState } from '../decrees'
+import { readSetupState } from '../utils'
 import { storeJson } from '../fileModels/store.json'
 import { i18n } from '../i18n'
 import { sdk } from '../sdk'
