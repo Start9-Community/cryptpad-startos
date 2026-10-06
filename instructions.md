@@ -60,13 +60,13 @@ The page usually stops at *Loading…* rather than redirecting, so it can look l
 > [!WARNING]
 > **A login attempt from the wrong address fails as "invalid username or password".** This is the most confusing symptom of being in the wrong place, because it looks like your account is broken. It isn't, and your password has not changed — CryptPad derives login keys differently when the page has not fully initialised for your instance. Go to your main address and log in there; the same credentials will work.
 
-One thing to act on: **the launch button on the service page may not open your main address.** Your server picks from the addresses you have enabled and does not know which one CryptPad accepts. If clicking it lands you on the error above, either bookmark your main address and use that, or go to the **Interfaces** tab and disable the addresses you are not using, leaving only the one you chose.
+**The launch button on the service page opens your main address.** The other addresses on the **Interfaces** tab lead to the error above.
 
 Tabs you already have open are unaffected until you reload them — an established session keeps working, reconnects, and saves normally. The same is true if you change the main address later.
 
 ### Actions
 
-- **Set Main URL** — change the primary CryptPad address at any time. CryptPad restarts to pick up the new one.
+- **Set Main URL** — change the primary CryptPad address at any time. CryptPad restarts to pick up the new one. If the hostname you chose stops being one of CryptPad's addresses, CryptPad stops and the task comes back; pick another address, or make the old one available again, then start CryptPad.
 - **Set Sandbox URL** — change the sandbox address. It has to stay different from the main one; a different port on the same hostname counts.
 - **Add Administrator by Public Key** — manage the administrator list CryptPad reads from its config file. Each row takes either a bare public signing key (CryptPad → Settings → Account → Public Signing Key) or the full `[user@host/key=]` profile link. The list is the new state in full — to remove an administrator, delete its row and submit.
 
@@ -95,7 +95,7 @@ Two things to expect, both normal.
 
 **Restoring takes a long time** — tens of minutes even for a small instance, and far longer than the backup took. The progress bar advances slowly but steadily. As long as the percentage is climbing it has not stalled; let it finish.
 
-**You will be asked to set both addresses again.** Your service is assigned new ports when it is reinstalled, so the ones saved before the backup no longer exist. Both *Set Main URL* and *Set Sandbox URL* come back, noting that your previous choice is no longer available. Pick the entries for the same hostnames you used before — the new ports are filled in for you — then start the service.
+**Your addresses carry over.** Your service is assigned new ports when it is reinstalled, and CryptPad follows the hostnames you chose to their new ports. If one of those hostnames no longer exists, its *Set URL* task comes back and CryptPad will not start until you pick another.
 
 Nothing else changes: accounts, documents, uploads, administrators and branding all come back, and your existing passwords still work.
 

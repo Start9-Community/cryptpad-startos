@@ -2,6 +2,7 @@ import { chown, mkdir, writeFile } from 'node:fs/promises'
 import { generateCryptpadConfig } from './cryptpadConfig'
 import { storeJson } from './fileModels/store.json'
 import { i18n } from './i18n'
+import { mainUrl, sandboxUrl } from './primaryUrl'
 import { sdk } from './sdk'
 import { CRYPTPAD_GID, CRYPTPAD_UID, uiPort } from './utils'
 
@@ -44,20 +45,13 @@ const VOLUME_FILES = ['customize/application_config.js'] as const
 export const main = sdk.setupMain(async ({ effects }) => {
   console.info(i18n('Starting CryptPad'))
 
-  const store = await storeJson
-    .read((s) => ({
-      mainUrl: s.mainUrl,
-      sandboxUrl: s.sandboxUrl,
-      adminKeys: s.adminKeys,
-    }))
-    .const(effects)
+  const [main, sandbox, adminKeys] = await Promise.all([
+    mainUrl.bestUsable(effects).const(),
+    sandboxUrl.bestUsable(effects).const(),
+    storeJson.read((s) => s.adminKeys).const(effects),
+  ])
 
-  // Defensive belt-and-suspenders for the daemon-start gate.
-  // The 'critical' task severity in init/setup.ts is the primary gate (per
-  // tasks.md, critical tasks block startup). If somehow setupMain is
-  // invoked with null URLs anyway, a clear thrown error beats a silent
-  // misconfiguration.
-  if (!store?.mainUrl || !store?.sandboxUrl) {
+  if (!main || !sandbox) {
     throw new Error(
       i18n(
         'CryptPad cannot start until both Main URL and Sandbox URL are set. Run the Set Main URL and Set Sandbox URL actions, then start the service.',
@@ -70,8 +64,8 @@ export const main = sdk.setupMain(async ({ effects }) => {
   // this, but the check lives here too — refuse to launch with a clear
   // message rather than boot a broken security model if the store ever ends
   // up with matching origins (e.g. the user edits store.json directly).
-  const mainOrigin = new URL(store.mainUrl).origin
-  const sandboxOrigin = new URL(store.sandboxUrl).origin
+  const mainOrigin = new URL(main).origin
+  const sandboxOrigin = new URL(sandbox).origin
   if (mainOrigin === sandboxOrigin) {
     throw new Error(
       i18n(
@@ -152,9 +146,9 @@ export const main = sdk.setupMain(async ({ effects }) => {
   await writeFile(
     `${appSub.rootfs}/cryptpad/config/config.js`,
     generateCryptpadConfig({
-      httpUnsafeOrigin: new URL(store.mainUrl).origin,
-      httpSafeOrigin: new URL(store.sandboxUrl).origin,
-      adminKeys: store.adminKeys,
+      httpUnsafeOrigin: mainOrigin,
+      httpSafeOrigin: sandboxOrigin,
+      adminKeys: adminKeys ?? [],
     }),
   )
 
@@ -173,8 +167,8 @@ export const main = sdk.setupMain(async ({ effects }) => {
         //               we pass them anyway in case future image scripts
         //               look at them.
         CPAD_CONF: '/cryptpad/config/config.js',
-        CPAD_MAIN_DOMAIN: new URL(store.mainUrl).origin,
-        CPAD_SANDBOX_DOMAIN: new URL(store.sandboxUrl).origin,
+        CPAD_MAIN_DOMAIN: mainOrigin,
+        CPAD_SANDBOX_DOMAIN: sandboxOrigin,
         // CPAD_INSTALL_ONLYOFFICE deliberately UNSET. OnlyOffice is baked
         // into the image at build time (see Dockerfile). Setting this to
         // "yes" would re-run the ~210 MB install on every container start.

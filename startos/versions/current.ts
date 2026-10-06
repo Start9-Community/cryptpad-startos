@@ -1,39 +1,40 @@
 import { IMPOSSIBLE, VersionInfo } from '@start9labs/start-sdk'
+import { sdk } from '../sdk'
 
 export const current = VersionInfo.of({
-  version: '2026.5.1:0',
+  version: '2026.5.1:1',
   releaseNotes: {
-    en_US:
-      'Initial release of CryptPad for StartOS, wrapping upstream 2026.5.1. ' +
-      'CryptPad is served on two separate URLs — a main URL and a sandbox URL — which the browser uses to isolate document rendering. ' +
-      'Set both from the Actions tab, then complete the one-time setup to create your administrator account. ' +
-      'The Document, Sheet, and Presentation editors (OnlyOffice) are built into the package, so there is no download on first start.',
-    es_ES:
-      'Versión inicial de CryptPad para StartOS, basada en la versión 2026.5.1. ' +
-      'CryptPad se sirve en dos URL distintas — una principal y otra de sandbox — que el navegador utiliza para aislar la representación de documentos. ' +
-      'Configura ambas desde la pestaña Acciones y luego completa la configuración inicial para crear tu cuenta de administrador. ' +
-      'Los editores de Documento, Hoja de cálculo y Presentación (OnlyOffice) vienen incluidos en el paquete, por lo que no hay descarga al primer inicio.',
-    de_DE:
-      'Erstveröffentlichung von CryptPad für StartOS auf Basis von Upstream 2026.5.1. ' +
-      'CryptPad wird über zwei getrennte URLs bereitgestellt — eine Haupt-URL und eine Sandbox-URL —, mit denen der Browser die Dokumentdarstellung isoliert. ' +
-      'Lege beide im Tab Aktionen fest und schließe anschließend die einmalige Einrichtung ab, um dein Administratorkonto zu erstellen. ' +
-      'Die Editoren für Dokumente, Tabellen und Präsentationen (OnlyOffice) sind im Paket enthalten, es gibt also keinen Download beim ersten Start.',
-    pl_PL:
-      'Pierwsze wydanie CryptPad dla StartOS, oparte na wersji 2026.5.1. ' +
-      'CryptPad jest udostępniany pod dwoma osobnymi adresami URL — głównym i sandboxa — których przeglądarka używa do izolowania renderowania dokumentów. ' +
-      'Ustaw oba w zakładce Akcje, a następnie zakończ jednorazową konfigurację, aby utworzyć konto administratora. ' +
-      'Edytory dokumentów, arkuszy i prezentacji (OnlyOffice) są wbudowane w pakiet, więc przy pierwszym uruchomieniu nic nie jest pobierane.',
-    fr_FR:
-      'Version initiale de CryptPad pour StartOS, basée sur la version 2026.5.1. ' +
-      'CryptPad est servi sur deux URL distinctes — une URL principale et une URL de bac à sable — que le navigateur utilise pour isoler le rendu des documents. ' +
-      "Définissez les deux depuis l'onglet Actions, puis terminez la configuration initiale pour créer votre compte administrateur. " +
-      'Les éditeurs de documents, tableurs et présentations (OnlyOffice) sont intégrés au paquet : aucun téléchargement au premier démarrage.',
+    en_US: `- Open UI opens CryptPad at its Main URL.
+- After a restore, CryptPad keeps the hostnames you chose for its Main URL and Sandbox URL at their new ports, without asking you to choose again.
+- Set Main URL and Set Sandbox URL preselect the .local address.
+- The diagnostics and setup links open in a new tab with one click.`,
+    es_ES: `- Abrir interfaz abre CryptPad en su URL principal.
+- Tras una restauración, CryptPad conserva los nombres de host que elegiste para su URL principal y su URL del sandbox en sus nuevos puertos, sin pedirte que vuelvas a elegirlos.
+- Establecer URL principal y Establecer URL del sandbox preseleccionan la dirección .local.
+- Los enlaces de diagnóstico y de configuración se abren en una pestaña nueva con un solo clic.`,
+    de_DE: `- „Oberfläche öffnen“ öffnet CryptPad unter seiner Haupt-URL.
+- Nach einer Wiederherstellung behält CryptPad die Hostnamen, die du für Haupt-URL und Sandbox-URL gewählt hast, auf ihren neuen Ports bei, ohne dich erneut wählen zu lassen.
+- „Haupt-URL festlegen“ und „Sandbox-URL festlegen“ wählen die .local-Adresse vor.
+- Die Diagnose- und Einrichtungslinks öffnen sich mit einem Klick in einem neuen Tab.`,
+    pl_PL: `- „Otwórz interfejs” otwiera CryptPad pod jego głównym URL.
+- Po przywróceniu CryptPad zachowuje nazwy hostów wybrane dla głównego URL i URL sandboxa, na ich nowych portach, bez ponownego pytania o wybór.
+- „Ustaw główny URL” i „Ustaw URL sandboxa” wstępnie zaznaczają adres .local.
+- Linki diagnostyki i konfiguracji otwierają się w nowej karcie jednym kliknięciem.`,
+    fr_FR: `- Ouvrir l'interface ouvre CryptPad sur son URL principale.
+- Après une restauration, CryptPad conserve les noms d'hôte choisis pour son URL principale et son URL du bac à sable, sur leurs nouveaux ports, sans vous demander de les choisir à nouveau.
+- Définir l'URL principale et Définir l'URL du bac à sable présélectionnent l'adresse .local.
+- Les liens de diagnostic et de configuration s'ouvrent dans un nouvel onglet en un clic.`,
   },
-  // No path in. The retired 0.3.x package shares this package's id and sorts
-  // below it, so an empty `up` would have let StartOS offer this as its update
-  // and hand a 2026 CryptPad six volumes laid out for 5.2.1.
   migrations: {
-    up: IMPOSSIBLE,
+    up: async ({ effects }) => {
+      await sdk.action.clearTask(
+        effects,
+        'main-url-not-set',
+        'main-url-unavailable',
+        'sandbox-url-not-set',
+        'sandbox-url-unavailable',
+      )
+    },
     down: IMPOSSIBLE,
   },
 })

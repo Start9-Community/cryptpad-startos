@@ -10,11 +10,8 @@ import { sdk } from '../sdk'
  *   the running app.
  *
  * - mainUrl / sandboxUrl: the user's chosen URLs for the two CryptPad
- *   origins. Both must be set before the daemon can start — the 'critical'
- *   task severity in init/setup.ts is the gate. Stored as nullable strings
- *   rather than empty-string-default because "no URL set yet" is a
- *   meaningfully different state from "the user picked the empty URL," and
- *   using null lets the watcher in init/setup.ts cleanly distinguish them.
+ *   origins, null until chosen. Read through `primaryUrl.ts`, which falls
+ *   back to the interface's .local address while one is unset or gone.
  *
  * - wizardCompletedNotified: one-shot latch for the "setup complete"
  *   notification. The reactive watcher in init/setup.ts posts the
@@ -23,7 +20,7 @@ import { sdk } from '../sdk'
  *   re-runs are no-ops. Without the latch we'd post a notification on every
  *   container rebuild for the rest of the install's life.
  */
-const shape = z.object({
+const shape = z.looseObject({
   adminKeys: z.array(z.string()).catch([]),
   mainUrl: z.string().nullable().catch(null),
   sandboxUrl: z.string().nullable().catch(null),

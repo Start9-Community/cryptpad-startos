@@ -1,5 +1,5 @@
-import { storeJson } from '../fileModels/store.json'
 import { i18n } from '../i18n'
+import { mainUrl } from '../primaryUrl'
 import { sdk } from '../sdk'
 
 /**
@@ -23,12 +23,10 @@ export const runDiagnostics = sdk.Action.withoutInput(
   }),
 
   async ({ effects }) => {
-    const mainUrl = await storeJson.read((s) => s.mainUrl).once()
+    const url = await mainUrl.bestUsable(effects).once()
 
-    // Belt-and-suspenders. mainUrl can't be null here because
-    // 'only-running' availability + the daemon-start gate in setupMain
-    // make this unreachable, but defensive code throws a clear message.
-    if (!mainUrl) {
+    // 'only-running' plus setupMain's own null check make this unreachable.
+    if (!url) {
       throw new Error(
         i18n(
           'Main URL is not set; cannot construct diagnostics URL. Run the Set Main URL action and try again.',
@@ -36,7 +34,7 @@ export const runDiagnostics = sdk.Action.withoutInput(
       )
     }
 
-    const base = mainUrl.replace(/\/$/, '')
+    const base = url.replace(/\/$/, '')
     return {
       version: '1' as const,
       title: i18n('CryptPad Diagnostics'),
@@ -49,6 +47,7 @@ export const runDiagnostics = sdk.Action.withoutInput(
         copyable: true,
         masked: false,
         qr: false,
+        launchable: true,
       },
     }
   },
