@@ -29,7 +29,7 @@ export const mainUrl = sdk.setupPrimaryUrl({
   field: { name: i18n('URL'), description: null },
   get: storeJson.read((s) => s.mainUrl),
   set: async (effects, url) => {
-    refuseSameOrigin(url, await storeJson.read((s) => s.sandboxUrl).once())
+    refuseSameOrigin(url, await sandboxUrl.bestUsable(effects).once())
     await storeJson.merge(effects, { mainUrl: url })
   },
 })
@@ -51,7 +51,7 @@ export const sandboxUrl = sdk.setupPrimaryUrl({
   field: { name: i18n('URL'), description: null },
   get: storeJson.read((s) => s.sandboxUrl),
   set: async (effects, url) => {
-    refuseSameOrigin(url, await storeJson.read((s) => s.mainUrl).once())
+    refuseSameOrigin(url, await mainUrl.bestUsable(effects).once())
     await storeJson.merge(effects, { sandboxUrl: url })
   },
 })
