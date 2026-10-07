@@ -129,11 +129,11 @@ WebSocket traffic needs no interface of its own. CryptPad's HTTP server intercep
 
 ## Installation and First-Run Flow
 
-Setup is a three-step chain, and the first two block the daemon. Nothing starts until the user has chosen both origins. Both are built with `sdk.setupPrimaryUrl` (`startos/primaryUrl.ts`), whose two `critical` tasks are the gate (see [Tasks](#tasks)). A chosen hostname whose port or scheme moved is followed to its current one; a chosen hostname that is no longer among the interface's addresses raises its task again, which stops the service until the user picks another.
+Setup is a three-step chain, and the first two block the daemon. Nothing starts until the user has chosen both origins. Both are built with `sdk.setupPrimaryUrl` (`startos/primaryUrl.ts`), whose two `critical` tasks are the gate (see [Tasks](#tasks)). A chosen hostname whose port or scheme moved is followed to its current one; a chosen hostname that is no longer among the interface's addresses raises its task again, which stops the service until the user picks another. CryptPad never runs on an address the user did not choose.
 
 An origin is scheme + host + port, so **two ports on one hostname already satisfy CryptPad's requirement** — which is what StartOS produces on a LAN with no extra setup, since the two MultiHosts get different external ports. Two distinct hostnames matter only when serving over a domain, and for a different reason: upstream warns that restrictive networks filter traffic on unusual ports.
 
-1. **Set Main URL** and **Set Sandbox URL** can be completed in either order. Both write to `store.json`; the daemon-start gate is the pair of `critical` tasks, with a matching throw in `main.ts` as a backstop. Each form preselects the interface's `.local` address; nothing is saved until the user submits.
+1. **Set Main URL** and **Set Sandbox URL** can be completed in either order. Both write to `store.json`; the daemon-start gate is the pair of `critical` tasks, with a matching throw in `main.ts` as a backstop. Both forms start with nothing selected (`fallback: false`), so the user picks each origin deliberately.
 2. Clearing the two tasks unblocks the service but **does not start it** — the user has to press Start. The daemon then bootstraps and writes an install token into its decree log.
 3. **Complete CryptPad Initial Setup** then appears as an `important` task carrying a single-use URL. Opening it runs CryptPad's own wizard: first administrator account, instance name and branding, application selection, registration policy.
 
@@ -147,7 +147,7 @@ Four user-facing actions and one hidden one. Two of them exist because CryptPad 
 
 ### Set Main URL
 
-**When to run it:** at install, and any time the address users should reach CryptPad on changes. **What it changes:** `store.json`'s `mainUrl`, which becomes `httpUnsafeOrigin` in the regenerated `config.js` and the address the service page's **Open** button opens. The form offers the `ui` interface's addresses with the `.local` one preselected. **Cost:** the daemon restarts. **Repeat safety:** idempotent; re-running with the same value is a no-op.
+**When to run it:** at install, and any time the address users should reach CryptPad on changes. **What it changes:** `store.json`'s `mainUrl`, which becomes `httpUnsafeOrigin` in the regenerated `config.js` and the address the service page's **Open** button opens. The form offers the `ui` interface's addresses with none preselected. **Cost:** the daemon restarts. **Repeat safety:** idempotent; re-running with the same value is a no-op.
 
 It refuses a URL whose origin matches the current sandbox URL, and `main.ts` repeats that check before starting — a matching pair would collapse the sandbox boundary rather than fail loudly. **What happens next:** the daemon restarts on the new origin; already-open browser tabs keep working until they are reloaded.
 

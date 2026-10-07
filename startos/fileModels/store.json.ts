@@ -10,8 +10,8 @@ import { sdk } from '../sdk'
  *   the running app.
  *
  * - mainUrl / sandboxUrl: the user's chosen URLs for the two CryptPad
- *   origins, null until chosen. Read through `primaryUrl.ts`, which falls
- *   back to the interface's .local address while one is unset or gone.
+ *   origins, null until chosen. Read through `primaryUrl.ts`, which yields
+ *   null while one is unset or its hostname is gone.
  *
  * - wizardCompletedNotified: one-shot latch for the "setup complete"
  *   notification. The reactive watcher in init/setup.ts posts the
