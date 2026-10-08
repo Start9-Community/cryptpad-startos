@@ -19,7 +19,7 @@ export const mainUrl = sdk.setupPrimaryUrl({
   metadata: {
     name: i18n('Set Main URL'),
     description: i18n(
-      'Choose the URL CryptPad serves its app on: the address users open in their browser, and the one Open UI opens. CryptPad answers only on this address and restarts to apply a change. It will not start until one is chosen, and stops if the chosen hostname is no longer one of its addresses. If only the port changes, as after a restore, CryptPad follows it.',
+      "Choose the URL CryptPad serves its app on: the address users open in their browser, and the one Open UI opens when the user's connection can reach it. CryptPad answers only on this address and restarts to apply a change. It will not start until one is chosen, and stops if the chosen hostname is no longer one of its addresses. If only the port changes, as after a restore, CryptPad follows it.",
     ),
     warning: null,
     allowedStatuses: 'any',

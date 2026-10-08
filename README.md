@@ -123,7 +123,7 @@ CryptPad requires `httpUnsafeOrigin ≠ httpSafeOrigin`: the sandbox iframe has 
 
 The sandbox interface is typed `api` rather than `ui` for one concrete effect: the service page's launch control filters on `type === 'ui'`, so the sandbox never appears as an **Open** button. It does not hide the interface — the Interfaces tab lists and links every interface regardless of type. Its hostname is chosen through the **Set Sandbox URL** action, which is the only mechanism the user has for it.
 
-The `ui` interface nominates the address CryptPad is serving as its main origin (`preferredLauncherAddress`), so the service page's **Open** button opens the one address CryptPad accepts.
+The `ui` interface nominates the address CryptPad is serving as its main origin (`preferredLauncherAddress`), so the service page's **Open** button prefers the one address CryptPad accepts when StartOS considers it reachable from the current session; an onion origin, for example, is used only from a Tor session.
 
 WebSocket traffic needs no interface of its own. CryptPad's HTTP server intercepts upgrade requests for `/cryptpad_websocket` and proxies them internally to its own WebSocket server on port 3003, so the browser connects to `wss://<main-host>/cryptpad_websocket` over the ordinary interface. Port 3003 is never bound externally.
 
@@ -147,7 +147,7 @@ Four user-facing actions and one hidden one. Two of them exist because CryptPad 
 
 ### Set Main URL
 
-**When to run it:** at install, and any time the address users should reach CryptPad on changes. **What it changes:** `store.json`'s `mainUrl`, which becomes `httpUnsafeOrigin` in the regenerated `config.js` and the address the service page's **Open** button opens. The form offers the `ui` interface's addresses with none preselected. **Cost:** the daemon restarts. **Repeat safety:** idempotent; re-running with the same value is a no-op.
+**When to run it:** at install, and any time the address users should reach CryptPad on changes. **What it changes:** `store.json`'s `mainUrl`, which becomes `httpUnsafeOrigin` in the regenerated `config.js` and the address the service page's **Open** button prefers. The form offers the `ui` interface's addresses with none preselected. **Cost:** the daemon restarts. **Repeat safety:** idempotent; re-running with the same value is a no-op.
 
 It refuses a URL whose origin matches the current sandbox URL, and `main.ts` repeats that check before starting — a matching pair would collapse the sandbox boundary rather than fail loudly. **What happens next:** the daemon restarts on the new origin; already-open browser tabs keep working until they are reloaded.
 
@@ -247,7 +247,7 @@ Expect the restore itself to take **tens of minutes** even for a near-empty inst
 
 1. **Two origins are mandatory.** CryptPad will not start with one, and the two must differ in hostname or port. On a LAN this is automatic; over a domain it means provisioning a second hostname.
 2. **An untrusted Root CA breaks CryptPad specifically, and looks like a broken package.** StartOS issues certificates for `.local`, IP and `.onion` addresses from the server's own Root CA. For a single-origin service the user clicks through the warning once; that escape hatch exists only for top-level navigation, and CryptPad loads its sandbox in an iframe, for which browsers offer no certificate exception at all. The symptom is distinctive: the address bar shows the *main* origin while the error names the *sandbox* origin on a different port, with no dismiss option. Nothing in the package can fix it — the second origin is mandated by CryptPad and certificate trust is a client-side decision. User-facing mitigations are in `instructions.md`.
-3. **CryptPad answers on one origin only.** It answers every other address with *"This page can only be accessed via …"*, usually stalling at *Loading…* rather than redirecting. The service page's **Open** button opens the main origin; an address picked from the Interfaces tab can still hit the rejection. Established sessions are unaffected until reloaded; the rejection is a page-load check, not a per-request one.
+3. **CryptPad answers on one origin only.** It answers every other address with *"This page can only be accessed via …"*, usually stalling at *Loading…* rather than redirecting. The service page's **Open** button opens the main origin when the current session can reach it; an address it falls back to, or one picked from the Interfaces tab, can still hit the rejection. Established sessions are unaffected until reloaded; the rejection is a page-load check, not a per-request one.
 4. **`loginSalt` is set once and never changed.** Changing it would invalidate every existing user's password hash, so the package writes it at first install and the init guard prevents regeneration. A restore preserves it.
 5. **The `adminKeys` list is one of CryptPad's two administrator lists** and cannot remove administrators from the other. See [Actions](#actions).
 6. **HSTS cannot be set.** StartOS terminates TLS at the platform edge and emits no `Strict-Transport-Security`; the container only ever sees plain HTTP. `/checkup/` test 54 reports this on every StartOS install and no package-side change can resolve it. It does not affect functionality.

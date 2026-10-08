@@ -16,7 +16,7 @@ const dict = {
   // primaryUrl.ts
   URL: 8,
   'Set Main URL': 9,
-  'Choose the URL CryptPad serves its app on: the address users open in their browser, and the one Open UI opens. CryptPad answers only on this address and restarts to apply a change. It will not start until one is chosen, and stops if the chosen hostname is no longer one of its addresses. If only the port changes, as after a restore, CryptPad follows it.': 10,
+  "Choose the URL CryptPad serves its app on: the address users open in their browser, and the one Open UI opens when the user's connection can reach it. CryptPad answers only on this address and restarts to apply a change. It will not start until one is chosen, and stops if the chosen hostname is no longer one of its addresses. If only the port changes, as after a restore, CryptPad follows it.": 10,
   'Set Sandbox URL': 11,
   'Choose which URL CryptPad should use as its sandbox iframe origin. It must be a different ORIGIN from the Main URL. A different port on the same hostname is enough — StartOS assigns the two interfaces different ports automatically — or use a different hostname if you are serving CryptPad over a domain. The browser relies on that difference to isolate document rendering.': 12,
 
