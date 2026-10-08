@@ -60,7 +60,7 @@ The page usually stops at *Loading…* rather than redirecting, so it can look l
 > [!WARNING]
 > **A login attempt from the wrong address fails as "invalid username or password".** This is the most confusing symptom of being in the wrong place, because it looks like your account is broken. It isn't, and your password has not changed — CryptPad derives login keys differently when the page has not fully initialised for your instance. Go to your main address and log in there; the same credentials will work.
 
-**The launch button on the service page opens your main address.** The other addresses on the **Interfaces** tab lead to the error above.
+**The launch button on the service page prefers your main address when your connection can reach it.** For example, a Tor main address is preferred only when you access StartOS over Tor. If the launch button opens another address, open your main address from a browser that can reach it. Opening a different address from the **Interfaces** tab still leads to the error above.
 
 Tabs you already have open are unaffected until you reload them — an established session keeps working, reconnects, and saves normally. The same is true if you change the main address later.
 
