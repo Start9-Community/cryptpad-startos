@@ -1,6 +1,6 @@
-import { readSetupState } from '../utils'
-import { storeJson } from '../fileModels/store.json'
 import { i18n } from '../i18n'
+import { mainUrl } from '../primaryUrl'
+import { readSetupState } from '../utils'
 import { sdk } from '../sdk'
 
 export const showSetupTokenUrl = sdk.Action.withoutInput(
@@ -34,7 +34,7 @@ export const showSetupTokenUrl = sdk.Action.withoutInput(
 
   async ({ effects }) => {
     const state = await readSetupState()
-    const mainUrl = await storeJson.read((s) => s.mainUrl).once()
+    const url = await mainUrl.bestUsable(effects).once()
 
     if (state.kind === 'waiting-for-daemon') {
       throw new Error(
@@ -52,13 +52,8 @@ export const showSetupTokenUrl = sdk.Action.withoutInput(
       )
     }
 
-    // mainUrl can be null in one situation: the user has never set it
-    // (fresh install, before completing Set Main URL). In that case the
-    // setup-token-pending task wouldn't exist either (the watcher only
-    // creates it once both URLs are set), so the action's only entry
-    // point is the user opening the hidden action directly — defensive
-    // path that returns a clear error rather than a malformed URL.
-    if (!mainUrl) {
+    // Null only when the interface has no addresses and none was ever stored.
+    if (!url) {
       throw new Error(
         i18n(
           'Main URL is not set; cannot construct setup URL. Run the Set Main URL action and try again.',
@@ -66,7 +61,7 @@ export const showSetupTokenUrl = sdk.Action.withoutInput(
       )
     }
 
-    const base = mainUrl.replace(/\/$/, '')
+    const base = url.replace(/\/$/, '')
     return {
       version: '1' as const,
       title: i18n('CryptPad Setup URL'),
@@ -86,6 +81,7 @@ export const showSetupTokenUrl = sdk.Action.withoutInput(
         copyable: true,
         masked: true,
         qr: false,
+        launchable: true,
       },
     }
   },

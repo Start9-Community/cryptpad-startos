@@ -1,4 +1,5 @@
 import { i18n } from './i18n'
+import { mainUrl } from './primaryUrl'
 import { sdk } from './sdk'
 import { uiPort } from './utils'
 
@@ -44,6 +45,7 @@ export const setInterfaces = sdk.setupInterfaces(async ({ effects }) => {
   const sandboxOrigin = await sandboxMulti.bindPort(uiPort, {
     protocol: 'http',
   })
+  const preferredLauncherAddress = await mainUrl.bestUsable(effects).const()
 
   const ui = sdk.createInterface(effects, {
     name: i18n('Web UI'),
@@ -55,6 +57,7 @@ export const setInterfaces = sdk.setupInterfaces(async ({ effects }) => {
     username: null,
     path: '',
     query: {},
+    preferredLauncherAddress,
   })
 
   const sandbox = sdk.createInterface(effects, {

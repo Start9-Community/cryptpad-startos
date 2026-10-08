@@ -13,12 +13,10 @@ const dict = {
   'Sandbox Origin': 6,
   "Internal iframe origin for CryptPad's document sandbox. Loaded automatically by the main UI; not a user destination. Required separately so the browser sees a different origin and can enforce sandbox isolation via the same-origin policy.": 7,
 
-  // actions/setMainUrl.ts
+  // primaryUrl.ts
   URL: 8,
   'Set Main URL': 9,
-  'Choose which URL CryptPad should serve as its main app. This is the URL users open in their browser. CryptPad will not start until both Main URL and Sandbox URL are set.': 10,
-
-  // actions/setSandboxUrl.ts
+  "Choose the URL CryptPad serves its app on: the address users open in their browser, and the one Open UI opens when the user's connection can reach it. CryptPad answers only on this address and restarts to apply a change. It will not start until one is chosen, and stops if the chosen hostname is no longer one of its addresses. If only the port changes, as after a restore, CryptPad follows it.": 10,
   'Set Sandbox URL': 11,
   'Choose which URL CryptPad should use as its sandbox iframe origin. It must be a different ORIGIN from the Main URL. A different port on the same hostname is enough — StartOS assigns the two interfaces different ports automatically — or use a different hostname if you are serving CryptPad over a domain. The browser relies on that difference to isolate document rendering.': 12,
 
@@ -42,18 +40,16 @@ const dict = {
   'CryptPad Diagnostics': 25,
   "Open this URL in a browser to run CryptPad's diagnostic checkup.": 26,
 
-  // init/setup.ts (reactive watcher tasks)
+  // init/primaryUrlTasks.ts and init/setup.ts (tasks)
   'Choose the primary domain for the CryptPad UI.': 27,
-  'Your previously selected Main URL is no longer available. Pick a new one.': 28,
   "Choose the sandbox domain for CryptPad's document iframe isolation.": 29,
-  'Your previously selected Sandbox URL is no longer available. Pick a new one.': 30,
   'Open this URL once and complete the wizard to create your CryptPad administrator account.': 31,
 
   // init/setup.ts (wizard-completion notification)
   'CryptPad setup complete': 32,
   'Your administrator account is active. Open the /admin/ panel inside CryptPad for further configuration.': 33,
 
-  // main.ts (startup gates) and setter actions (cross-origin gate)
+  // main.ts (startup gates)
   'CryptPad cannot start until both Main URL and Sandbox URL are set. Run the Set Main URL and Set Sandbox URL actions, then start the service.': 34,
   'CryptPad cannot start: Main URL and Sandbox URL must be different origins, but both resolve to': 35,
   'The browser uses the origin difference to enforce sandbox isolation around document rendering — same-origin would disable that protection. Re-run Set Main URL or Set Sandbox URL and pick an entry that differs in hostname or port.': 36,
@@ -65,7 +61,7 @@ const dict = {
   // actions/addAdminKey.ts (parser failure)
   'Invalid admin key:': 39,
 
-  // actions/setMainUrl.ts and actions/setSandboxUrl.ts (cross-origin gate)
+  // primaryUrl.ts (cross-origin gate)
   'Main URL and Sandbox URL must be different origins so the browser can enforce sandbox isolation. Two addresses differ if either the hostname or the port differs. Pick a different one.': 40,
   // actions/addAdminKey.ts (submit acknowledgement)
   'Administrator List Updated': 41,
