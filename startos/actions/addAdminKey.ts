@@ -14,7 +14,7 @@ const KEY_FORMAT_HINT =
  * # Semantics are copied from upstream, not invented
  *
  * Mirrors `Keys.canonicalize` / `parseNewUser` in
- * src/common/common-signing-keys.js@2026.5.1. Two rules matter:
+ * src/common/common-signing-keys.js@2026.10.0. Two rules matter:
  *
  *   1. **Length is fixed at 44 characters** (an Ed25519 public key: 32 bytes
  *      base64 = 43 chars + '='). Upstream's `canonicalize` accepts a bare key
@@ -34,7 +34,7 @@ const KEY_FORMAT_HINT =
  *
  * The previous version validated the character set but not the length, so any
  * alphanumeric string (e.g. `notarealkey`) was accepted and written into
- * config.js. CryptPad does not grant that entry any access — lib/env.js maps
+ * config.js. CryptPad does not grant that entry any access — its core node maps
  * config.adminKeys through `Keys.canonicalize` and `.filter(Boolean)`, so a
  * malformed key is dropped from `Env.admins` — but it is kept verbatim in
  * `Env.adminsData`, which is what the /admin/ panel renders. The visible
@@ -160,6 +160,7 @@ export const addAdminKey = sdk.Action.withInput(
               copyable: false,
               masked: false,
               qr: false,
+              launchable: false,
             }
           : {
               type: 'group' as const,
@@ -171,6 +172,7 @@ export const addAdminKey = sdk.Action.withInput(
                 copyable: true,
                 masked: false,
                 qr: false,
+                launchable: false,
               })),
             },
     }

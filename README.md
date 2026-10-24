@@ -42,15 +42,15 @@ One image, built here from a Dockerfile that adds a single layer to upstream's, 
 | Image source | Local Dockerfile, `FROM` the upstream `cryptpad/cryptpad`  |
 | Architecture | x86_64, aarch64                                            |
 | Runtime user | `cryptpad` (UID/GID 4001)                                  |
-| Entrypoint   | Upstream's, steered by the `CPAD_CONF` environment variable |
+| Entrypoint   | Upstream's, with `config.js` and `infra.js` pre-written    |
 
 | Subcontainer  | Purpose                                            |
 | ------------- | -------------------------------------------------- |
 | `cryptpad-sub` | The `primary` daemon — the one to `attach` to |
 
-The added layer runs `install-onlyoffice.sh`, baking the Document / Sheet / Presentation editors into the image so they are available the moment the service starts. Upstream fetches them on first use instead, which costs the user a ten-to-fifteen minute wait the first time they open an office document.
+The added layer runs `install-office.sh`, baking the Document / Sheet / Presentation editors (Euro-Office based) into the image so they are available the moment the service starts. Upstream fetches them on first use instead, which costs the user a ten-to-fifteen minute wait the first time they open an office document.
 
-The container runs upstream's entrypoint with `CPAD_CONF` pointed at a config file this package has already written. The entrypoint only generates a config when that path is missing, so the file existing is what keeps configuration StartOS-managed end to end.
+The container runs upstream's entrypoint against `config/config.js` and `config/infra.js` files this package has already written. The entrypoint copies an example only where one is missing, so the files existing is what keeps configuration StartOS-managed end to end. No `CPAD_*` environment variables are passed: `CPAD_MAIN_DOMAIN` would make the server rebind its internal nodes to `0.0.0.0`.
 
 There is **no in-container reverse proxy**, and adding one would be a regression. CryptPad's Node server emits the CSP/COEP/CORP headers its own `/checkup/` self-test asserts on; a second set from an nginx or Caddy in front of it breaks those checks, and StartOS terminates TLS at the platform layer, so there is nothing for such a proxy to do.
 
@@ -62,13 +62,14 @@ One volume, mounted at three points because two of CryptPad's state directories 
 | ------ | ------------------------ | ---------------------------------------------------- |
 | `main` | `/data`                  | All persistent CryptPad data, plus this package's own state |
 | `main` (subpath `customize`)      | `/cryptpad/customize`      | The StartOS-written `application_config.js` |
-| `main` (subpath `onlyoffice-conf`) | `/cryptpad/onlyoffice-conf` | OnlyOffice's per-version install state       |
+| `main` (subpath `onlyoffice-conf`) | `/cryptpad/onlyoffice-conf` | The office editors' per-version install state |
 
 Under the volume root:
 
 | Path                                     | Contents                                                                    |
 | ---------------------------------------- | --------------------------------------------------------------------------- |
 | `store.json`                             | This package's state (see [File Models](#file-models))                      |
+| `base/`                                  | Login sessions, two-factor settings, invitations, registered-user records   |
 | `datastore/`                             | Document data                                                               |
 | `blob/`, `blobstage/`                    | Encrypted file uploads                                                      |
 | `block/`                                 | Authenticated user blocks                                                   |
@@ -76,16 +77,17 @@ Under the volume root:
 | `archive/`                               | Archived data                                                               |
 | `tasks/`                                 | CryptPad's scheduled-task storage                                           |
 | `decrees/decree.ndjson`                  | CryptPad's server-side decree log                                           |
+| `logo/`                                  | The instance logo uploaded from `/admin/`                                   |
 | `logs/`                                  | Activity logs                                                               |
 | `customize/application_config.js`        | Holds `loginSalt` — written once on first install and never regenerated     |
 
 The daemon runs as UID/GID 4001 while the service runtime runs as root, so `main.ts` pre-creates every one of those directories and `chown`s them before the container starts. A directory that CryptPad cannot write is the usual cause of a daemon that starts and then does nothing.
 
-`/cryptpad/www/common/onlyoffice/dist/` — the per-version OnlyOffice assets — is deliberately **not** a mount. It lives in the image rootfs and is refreshed when the image is rebuilt; mounting an empty volume over it would shadow the content the Dockerfile baked in.
+`/cryptpad/www/common/onlyoffice/dist/` — the per-version office-editor assets — is deliberately **not** a mount. It lives in the image rootfs and is refreshed when the image is rebuilt; mounting an empty volume over it would shadow the content the Dockerfile baked in.
 
 ## File Models
 
-One model, plus one read-only view of a file CryptPad owns. The service's own `config.js` is not modelled at all — it is generated from scratch on every start.
+One model, plus one read-only view of a file CryptPad owns. The service's own `config.js` and `infra.js` are not modelled at all — they are generated from scratch on every start.
 
 | File                    | Format | Modelled                  | Written by                    |
 | ----------------------- | ------ | ------------------------- | ----------------------------- |
@@ -96,13 +98,13 @@ One model, plus one read-only view of a file CryptPad owns. The service's own `c
 
 `decree.ndjson` is CryptPad's own append-only log and is **never written from here**. It is modelled only so the read is reactive: the setup-token prompt depends on a line the daemon writes after it first boots, and a plain `readFile` would not re-trigger the init watcher when that file appears.
 
-`config.js` is regenerated into the container's ephemeral rootfs on every start from `store.json`, the interfaces' current addresses, and upstream's documented defaults. It is not on the volume, and a hand edit does not survive a restart — by design, since the origins it carries have to track what the user selected. Everything it does *not* set is upstream's default or is managed from CryptPad's own `/admin/` panel:
+`config.js` and `infra.js` are regenerated into the container's ephemeral rootfs on every start from `store.json`, the interfaces' current addresses, and upstream's documented defaults. They are not on the volume, and a hand edit does not survive a restart — by design, since the origins `infra.js` carries have to track what the user selected. Everything they do *not* set is upstream's default or is managed from CryptPad's own `/admin/` panel:
 
 | Setting                                                        | Owned by                        |
 | -------------------------------------------------------------- | ------------------------------- |
-| Main URL (`httpUnsafeOrigin`), Sandbox URL (`httpSafeOrigin`)  | **Set Main / Sandbox URL** actions |
+| Main URL (`public.origin`), Sandbox URL (`public.sandboxOrigin`), in `infra.js` | **Set Main / Sandbox URL** actions |
 | Administrator keys (`adminKeys`)                               | **Add Administrator by Public Key** action |
-| Storage paths, ports, log destination                          | This package, fixed             |
+| Storage paths, ports, internal node topology, log destination  | This package, fixed             |
 | `loginSalt`                                                    | This package, written once at install |
 | Instance name and branding, registration policy, upload limits, enabled applications, 2FA policy, directory listing | CryptPad's `/admin/` panel |
 
@@ -119,13 +121,13 @@ Two interfaces, both bound to the same container port, because the browser — n
 | Web UI    | `ui`      | ui   | 3000 | The application, `/admin/`, and `/checkup/`    |
 | Sandbox Origin | `sandbox` | api  | 3000 | The origin the document iframe loads from |
 
-CryptPad requires `httpUnsafeOrigin ≠ httpSafeOrigin`: the sandbox iframe has to come from a different **origin** so same-origin policy isolates it from the application around it. Each MultiHost gets its own hostname and port from StartOS while both target port 3000 in the container, and CryptPad serves the same content regardless of `Host` — its CSP differentiation is by URL path, not by host. So two bindings on one port is the whole mechanism.
+CryptPad requires `origin ≠ sandboxOrigin`: the sandbox iframe has to come from a different **origin** so same-origin policy isolates it from the application around it. Each MultiHost gets its own hostname and port from StartOS while both target port 3000 in the container, and CryptPad serves the same content regardless of `Host` — its CSP differentiation is by URL path, not by host. So two bindings on one port is the whole mechanism.
 
 The sandbox interface is typed `api` rather than `ui` for one concrete effect: the service page's launch control filters on `type === 'ui'`, so the sandbox never appears as an **Open** button. It does not hide the interface — the Interfaces tab lists and links every interface regardless of type. Its hostname is chosen through the **Set Sandbox URL** action, which is the only mechanism the user has for it.
 
 The `ui` interface nominates the address CryptPad is serving as its main origin (`preferredLauncherAddress`), so the service page's **Open** button prefers the one address CryptPad accepts when StartOS considers it reachable from the current session; an onion origin, for example, is used only from a Tor session.
 
-WebSocket traffic needs no interface of its own. CryptPad's HTTP server intercepts upgrade requests for `/cryptpad_websocket` and proxies them internally to its own WebSocket server on port 3003, so the browser connects to `wss://<main-host>/cryptpad_websocket` over the ordinary interface. Port 3003 is never bound externally.
+WebSocket traffic needs no interface of its own. CryptPad's HTTP server on port 3000 accepts the upgrade for `/cryptpad_websocket` itself and relays it to its internal front nodes, so the browser connects to `wss://<main-host>/cryptpad_websocket` over the ordinary interface. The internal front, core and storage nodes (ports 3010–3041, on `localhost`, set in `infra.js`) are never bound externally.
 
 ## Installation and First-Run Flow
 
@@ -147,7 +149,7 @@ Four user-facing actions and one hidden one. Two of them exist because CryptPad 
 
 ### Set Main URL
 
-**When to run it:** at install, and any time the address users should reach CryptPad on changes. **What it changes:** `store.json`'s `mainUrl`, which becomes `httpUnsafeOrigin` in the regenerated `config.js` and the address the service page's **Open** button prefers. The form offers the `ui` interface's addresses with none preselected. **Cost:** the daemon restarts. **Repeat safety:** idempotent; re-running with the same value is a no-op.
+**When to run it:** at install, and any time the address users should reach CryptPad on changes. **What it changes:** `store.json`'s `mainUrl`, which becomes `public.origin` in the regenerated `infra.js` and the address the service page's **Open** button prefers. The form offers the `ui` interface's addresses with none preselected. **Cost:** the daemon restarts. **Repeat safety:** idempotent; re-running with the same value is a no-op.
 
 It refuses a URL whose origin matches the current sandbox URL, and `main.ts` repeats that check before starting — a matching pair would collapse the sandbox boundary rather than fail loudly. **What happens next:** the daemon restarts on the new origin; already-open browser tabs keep working until they are reloaded.
 
@@ -182,11 +184,11 @@ Three things about it generate support traffic:
 
 Upstream labels the second group in `/admin/` as *"Admin added into config.js. Can only be removed by editing the config file."* Here the config file is generated, so the equivalent of editing it is re-running this action with the row deleted. The practical consequence — **on a fresh install this list is empty even though a working administrator already exists** — is correct behavior and not a missing migration.
 
-**Adding a key that is already a decree-log admin shadows it.** `lib/env.js` seeds `Env.admins` / `Env.adminsData` from `config.adminKeys` before decrees replay, and `ADD_ADMIN_KEY` returns early for a key already in `Env.admins` — so it never reaches `adminsData`, and the only surviving row is the `config.js` one, which by definition renders without a Remove button. Nothing is destroyed and it is reversible: delete the key here, submit, and after the restart the decree replays normally and the key is removable again.
+**Adding a key that is already a decree-log admin shadows it.** CryptPad's core node seeds `Env.admins` / `Env.adminsData` from `config.adminKeys` before decrees replay, and `ADD_ADMIN_KEY` returns early for a key already in `Env.admins` — so it never reaches `adminsData`, and the only surviving row is the `config.js` one, which by definition renders without a Remove button. Nothing is destroyed and it is reversible: delete the key here, submit, and after the restart the decree replays normally and the key is removable again.
 
 **Validation is syntactic, and that is the ceiling rather than a shortcut.** A key is exactly 44 characters (43 base64 characters plus `=`), with `-` accepted as the escaped form of `/` and no `_` in the alphabet, mirroring upstream's `Keys.canonicalize`. What it cannot do is confirm an account with that key exists — upstream cannot either. CryptPad is end-to-end encrypted and the server holds opaque login blocks rather than a queryable roster, so granting admin means "whoever holds the private half of this key", not "this registered user". A correctly-shaped typo is accepted and becomes an entry nobody can use.
 
-Length is the part worth guarding: a malformed key is filtered out of `Env.admins` by `lib/env.js` but kept verbatim in `Env.adminsData`, which is what `/admin/` renders — so it grants nothing while leaving a junk row that the panel offers no way to remove.
+Length is the part worth guarding: a malformed key is filtered out of `Env.admins` but kept verbatim in `Env.adminsData`, which is what `/admin/` renders — so it grants nothing while leaving a junk row that the panel offers no way to remove.
 
 ### Run Diagnostics
 
@@ -227,7 +229,7 @@ One check, on the only daemon. It probes the same endpoint CryptPad's own client
 
 A 200 means the Node server is up, the config parsed, and the API is answering — stronger than a port-listening check, since the port can be open before the application is serving. A failure that persists past the grace period means the config did not parse or the daemon died; the service log will say which.
 
-The grace period is generous because upstream's entrypoint runs `npm run build` on **every** container start, regenerating a few dozen HTML files before `node server.js`. Several seconds pass with the port closed, and a tighter window would flash a red failure on every ordinary restart. Expect a handful of `ECONNREFUSED` lines from the health check itself during that window — they come from `checkWebUrl` and cannot be suppressed from the package; the grace period governs the reported status, not the logging.
+The grace period is generous because upstream's entrypoint runs `npm run build` on **every** container start, regenerating a few dozen HTML files before the server starts its front, core and storage nodes. Several seconds pass with the port closed, and a tighter window would flash a red failure on every ordinary restart. Expect a handful of `ECONNREFUSED` lines from the health check itself during that window — they come from `checkWebUrl` and cannot be suppressed from the package; the grace period governs the reported status, not the logging.
 
 This is the only check on purpose. An earlier revision had four more (`admin`, `checkup`, `sandbox-security`, `onlyoffice`); once `/api/config` returns 200 they all turn green together and add no diagnostic value. **Run Diagnostics** is the deeper probe.
 
@@ -235,7 +237,7 @@ This is the only check on purpose. An earlier revision had four more (`admin`, `
 
 The whole `main` volume is copied wholesale — `sdk.Backups.ofVolumes('main')`. Nothing is excluded, and nothing is dumped-and-replayed, so what comes back is the files as they were.
 
-That covers every pad and upload, the decree log, `store.json`, OnlyOffice's install state, and `customize/application_config.js` — which is the one that matters most, because it holds `loginSalt`. Restore replays init with `kind === 'install'`, and the file-existence guard in `init/writeLoginSalt.ts` is what stops a fresh salt being minted over the restored one; regenerating it would invalidate every existing user's password with no recovery path.
+That covers every pad and upload, the decree log, sessions and two-factor settings, the uploaded logo, `store.json`, the office editors' install state, and `customize/application_config.js` — which is the one that matters most, because it holds `loginSalt`. Restore replays init with `kind === 'install'`, and the file-existence guard in `init/writeLoginSalt.ts` is what stops a fresh salt being minted over the restored one; regenerating it would invalidate every existing user's password with no recovery path.
 
 **Changing the main URL does not invalidate logins**, and neither does a restore. `Cred.deriveFromPassphrase` salts scrypt with the username plus `AppConfig.loginSalt`; the origin is not an input. There is a misleading failure mode worth recognising, though: `customSalt()` falls back to `''` when `loginSalt` is not a string, so a page that has not fully initialised for this instance derives different keys from correct credentials and the user is told **"invalid username or password"** rather than anything about origins.
 
@@ -255,7 +257,7 @@ Expect the restore itself to take **tens of minutes** even for a near-empty inst
 8. **x86_64 and aarch64 only.** The upstream image publishes no riscv64.
 9. **Single-node only.** Clustered CryptPad deployments are not supported.
 10. **There is no upgrade path from the StartOS 0.3.x CryptPad package, and the platform will not offer one.** That package shares this one's id but is a different service underneath — six volumes under `/cryptpad/`, wrapping a CryptPad release from several years earlier — and nothing maps across. The lowest version in the graph, `2026.5.1:0`, carries `migrations.up: IMPOSSIBLE`, so the graph has no inbound edge from below it and `canMigrateFrom` starts at `2026.5.1:0`; StartOS refuses the update rather than handing a 2026 CryptPad a 5.2.1 data layout. Anyone coming from the old package uninstalls it and installs this one fresh, having exported their drive from the old instance first.
-11. **Some log lines are normal and should not be investigated.** `HTTP_404` on OnlyOffice assets (`plugins.json`, `themes.json`, `document_editor_service_worker.js`, an icon or two) while an editor loads — the bundle probes for optional files CryptPad's trimmed distribution does not ship, and upstream's own flagship instance 404s on the same paths. `Error while fetching URL … ECONNREFUSED` during the first seconds of a start, from the health check. `HK_GET_OLDER_HISTORY` with an all-zeros channel id, which upstream logs at `ERROR` and is benign.
+11. **Some log lines are normal and should not be investigated.** `HTTP_404` on office-editor assets (`plugins.json`, `themes.json`, `document_editor_service_worker.js`, an icon or two) while an editor loads — the bundle probes for optional files CryptPad's trimmed distribution does not ship, and upstream's own flagship instance 404s on the same paths. `Error while fetching URL … ECONNREFUSED` during the first seconds of a start, from the health check. `HK_GET_OLDER_HISTORY` with an all-zeros channel id, which upstream logs at `ERROR` and is benign.
 
 ---
 
@@ -274,10 +276,7 @@ volumes:
 file_models:
   - store.json # mainUrl, sandboxUrl, adminKeys, wizardCompletedNotified
   - decrees/decree.ndjson # read-only; written by CryptPad
-startos_managed_env_vars:
-  - CPAD_CONF # points at the pre-written config.js
-  - CPAD_MAIN_DOMAIN
-  - CPAD_SANDBOX_DOMAIN
+startos_managed_env_vars: [] # config.js and infra.js are pre-written instead
 dependencies: []
 interfaces:
   ui: { type: ui, port: 3000 }

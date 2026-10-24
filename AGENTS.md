@@ -34,7 +34,7 @@ verified, tried, and decided belongs in the commit message and the PR body.
 
 ## This repo
 
-- **Keep `httpUnsafeOrigin` and `httpSafeOrigin` different.** The browser isolates the document iframe only across origins, so `main.ts` refuses matching origins and both URL actions reject one at submit time. Don't collapse the two interfaces to one, and don't relax the guard to a hostname comparison — a different port is a different origin, and that is what StartOS produces on a LAN with no domain.
+- **Keep `origin` and `sandboxOrigin` different.** The browser isolates the document iframe only across origins, so `main.ts` refuses matching origins and both URL actions reject one at submit time. Don't collapse the two interfaces to one, and don't relax the guard to a hostname comparison — a different port is a different origin, and that is what StartOS produces on a LAN with no domain.
 - **Never make `writeLoginSalt`'s write unconditional.** Restore replays init as `kind === 'install'`; without the file-existence guard every restore mints a new `loginSalt` and invalidates every existing user's password.
 - **Keep `2026.5.1:0` in `versions/index.ts`'s `other[]` with `up: IMPOSSIBLE`, as the lowest declared version, and never give it an `up`.** The retired 0.3.x package shares this id and sorts below it; the graph anchors a version's inbound range at its predecessor, so this node is what keeps StartOS from offering this package as that one's update. Revisit only with a written and tested 5.2.1 migration.
 - **Don't read the decree log with `node:fs`.** It goes through `fileModels/decreeLog.ts` so `.const()` re-runs `init/setup.ts` when the daemon first creates the file; a bare `readFile` leaves the setup-token task never appearing.

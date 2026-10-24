@@ -1,5 +1,5 @@
 import { chown, mkdir, writeFile } from 'node:fs/promises'
-import { generateCryptpadConfig } from './cryptpadConfig'
+import { generateCryptpadConfig, generateCryptpadInfra } from './cryptpadConfig'
 import { storeJson } from './fileModels/store.json'
 import { i18n } from './i18n'
 import { mainUrl, sandboxUrl } from './primaryUrl'
@@ -16,6 +16,7 @@ import { CRYPTPAD_GID, CRYPTPAD_UID, uiPort } from './utils'
  * ownership and for the bind-mount target to exist.
  */
 const VOLUME_SUBDIRS = [
+  'base',
   'datastore',
   'archive',
   'pins',
@@ -24,6 +25,7 @@ const VOLUME_SUBDIRS = [
   'blobstage',
   'tasks',
   'decrees',
+  'logo',
   'logs',
   'customize',
   'onlyoffice-conf',
@@ -59,8 +61,8 @@ export const main = sdk.setupMain(async ({ effects }) => {
     )
   }
 
-  // CryptPad's browser-side sandbox isolation depends on httpUnsafeOrigin and
-  // httpSafeOrigin being different origins. The setter actions also gate on
+  // CryptPad's browser-side sandbox isolation depends on origin and
+  // sandboxOrigin being different origins. The setter actions also gate on
   // this, but the check lives here too — refuse to launch with a clear
   // message rather than boot a broken security model if the store ever ends
   // up with matching origins (e.g. the user edits store.json directly).
@@ -112,7 +114,7 @@ export const main = sdk.setupMain(async ({ effects }) => {
   // `eager`, not `of`. As of start-sdk 2.0 `SubContainer.of` is lazy: it
   // returns synchronously and materializes the filesystem on first method
   // call, so `rootfs` widens to a Promise. We read `.rootfs` synchronously
-  // below to pre-write config.js, and we want a failing `createFs` to throw
+  // below to pre-write the config files, and we want a failing `createFs` to throw
   // here rather than at some later first-use. `eager` gives both.
   const appSub = await sdk.SubContainer.eager(
     effects,
@@ -139,40 +141,30 @@ export const main = sdk.setupMain(async ({ effects }) => {
     'cryptpad-sub',
   )
 
-  // Pre-write config.js into the subcontainer's rootfs. The upstream
-  // entrypoint guards with `[ ! -f "$CPAD_CONF" ]` (docker-entrypoint.sh
-  // @2026.5.1) — our file existing means the entrypoint's auto-generation
-  // sed branch is skipped entirely, leaving us in full control.
-  await writeFile(
-    `${appSub.rootfs}/cryptpad/config/config.js`,
-    generateCryptpadConfig({
-      httpUnsafeOrigin: mainOrigin,
-      httpSafeOrigin: sandboxOrigin,
-      adminKeys: adminKeys ?? [],
-    }),
-  )
+  // Pre-write config.js and infra.js into the subcontainer's rootfs. The
+  // upstream entrypoint copies an example only where a file is missing
+  // (docker-entrypoint.sh@2026.10.0), so ours are what the server loads.
+  const configDir = `${appSub.rootfs}/cryptpad/config`
+  const configInputs = {
+    origin: mainOrigin,
+    sandboxOrigin,
+    adminKeys: adminKeys ?? [],
+  }
+  await mkdir(configDir, { recursive: true })
+  await Promise.all([
+    writeFile(`${configDir}/config.js`, generateCryptpadConfig(configInputs)),
+    writeFile(`${configDir}/infra.js`, generateCryptpadInfra(configInputs)),
+  ])
 
   return sdk.Daemons.of(effects).addDaemon('primary', {
     subcontainer: appSub,
     exec: {
       command: sdk.useEntrypoint(),
-      env: {
-        // Required by docker-entrypoint.sh@2026.5.1 (declared as required
-        // vars at the top of the script):
-        //
-        //   CPAD_CONF — pointed at our pre-written file so the entrypoint's
-        //               auto-generation branch is skipped.
-        //   CPAD_MAIN_DOMAIN / CPAD_SANDBOX_DOMAIN — only used by the
-        //               entrypoint's sed substitution (which we bypass), but
-        //               we pass them anyway in case future image scripts
-        //               look at them.
-        CPAD_CONF: '/cryptpad/config/config.js',
-        CPAD_MAIN_DOMAIN: mainOrigin,
-        CPAD_SANDBOX_DOMAIN: sandboxOrigin,
-        // CPAD_INSTALL_ONLYOFFICE deliberately UNSET. OnlyOffice is baked
-        // into the image at build time (see Dockerfile). Setting this to
-        // "yes" would re-run the ~210 MB install on every container start.
-      },
+      // CPAD_INSTALL_OFFICE deliberately UNSET. The office editors are baked
+      // into the image at build time (see Dockerfile); setting it would
+      // re-run the install on every container start. CPAD_MAIN_DOMAIN is
+      // unset too: lib/load-config.js@2026.10.0 would rebind every internal
+      // node to 0.0.0.0, and infra.js already carries the origins.
     },
     ready: {
       display: i18n('Web Interface'),
