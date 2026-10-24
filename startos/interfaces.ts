@@ -7,14 +7,14 @@ export const setInterfaces = sdk.setupInterfaces(async ({ effects }) => {
   // Two MultiHost bindings, BOTH targeting container port `uiPort` (3000).
   //
   // Why "two MultiHosts on the same container port" works:
-  //   CryptPad's browser sandbox model requires httpUnsafeOrigin ≠
-  //   httpSafeOrigin — the sandbox iframe must load from a different ORIGIN
+  //   CryptPad's browser sandbox model requires origin ≠ sandboxOrigin
+  //   (infra.js) — the sandbox iframe must load from a different ORIGIN
   //   so the browser's same-origin policy isolates it from the main app.
   //
   //   StartOS gives each MultiHost a distinct hostname. Both bindings target
   //   port 3000 inside the container; CryptPad's HTTP server serves the same
   //   content regardless of Host header (CSP differentiation is by URL path,
-  //   not host — verified in lib/http-worker.js@2026.5.1 setHeaders). The
+  //   not host — verified in cryptpad-server@1.0.3 http.worker setHeaders). The
   //   browser is what enforces the sandbox boundary via origin.
   //
   // Why the sandbox interface is type 'api' (not 'ui'):
@@ -34,10 +34,10 @@ export const setInterfaces = sdk.setupInterfaces(async ({ effects }) => {
   //   Reference precedent: garage-startos/startos/interfaces.ts uses 'api' on
   //   its non-user-facing bindings for the same reason.
   //
-  // WebSocket: CryptPad's HTTP server on uiPort intercepts upgrade requests
-  // for /cryptpad_websocket and proxies them internally to wsPort 3003
-  // (lib/http-worker.js@2026.5.1: server.on('upgrade', wsProxy.upgrade)).
-  // We never bind 3003 externally — see utils.ts wsPort comment.
+  // WebSocket: CryptPad's HTTP server on uiPort accepts the upgrade for
+  // /cryptpad_websocket itself (cryptpad-server@1.0.3 http.worker:
+  // httpServer.on("upgrade", wsProxyUpgrade)) and relays it to its internal
+  // front nodes. Those ports (infra.js) are never bound externally.
   const uiMulti = sdk.MultiHost.of(effects, 'ui-multi')
   const sandboxMulti = sdk.MultiHost.of(effects, 'sandbox-multi')
 

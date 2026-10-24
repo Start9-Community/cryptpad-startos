@@ -18,7 +18,7 @@
 ## What you get on StartOS
 
 - A privacy-first collaboration suite — documents, spreadsheets, presentations, whiteboards, kanban boards, code editor, forms — all encrypted in your browser before touching the server.
-- The OnlyOffice editors (Document, Sheet, Presentation) are built into the package, so they open immediately. Installed any other way, CryptPad downloads them the first time you open an office document and you wait ten to fifteen minutes.
+- The office editors (Document, Sheet, Presentation) are built into the package, so they open immediately. Installed any other way, CryptPad downloads them the first time you open an office document and you wait ten to fifteen minutes.
 - Everything persistent — pads, uploads, your account data and your instance's login salt — is on one volume and is included in your server's backups.
 
 ## Getting set up

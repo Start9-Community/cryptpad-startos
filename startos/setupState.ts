@@ -14,8 +14,8 @@
  *
  * # Decree shape
  *
- * Verified against `lib/api.js@2026.5.1` — the token is `Hash.createChannelId()`
- * concatenated twice, emitted as:
+ * Verified against `cryptpad-server@1.0.3` (the server CryptPad 2026.10.0
+ * ships) — the token is 32 random bytes as 64 hex characters, emitted as:
  *
  *     ["ADD_INSTALL_TOKEN", [token], "", +new Date()]
  *
@@ -33,13 +33,13 @@
  *     ["SET_INSTANCE_DESCRIPTION", …]
  *     …
  *
- * `lib/api.js` only emits ADD_INSTALL_TOKEN when the instance has zero admins;
+ * The storage node only emits ADD_INSTALL_TOKEN when the instance has zero admins;
  * once an admin exists the existing token is simply never referenced again. So
  * "setup is done" is the presence of any ADD_ADMIN_KEY decree, not the removal
  * of the token.
  *
  * Note the envelope subtlety: the wizard's first-admin path sends
- * `['ADD_FIRST_ADMIN', ['ADD_ADMIN_KEY', [key]]]`, but `adminDecree` reads
+ * `['ADD_FIRST_ADMIN', ['ADD_ADMIN_KEY', [key]]]`, but `Admin.sendDecree` reads
  * `data[1]`, so what actually lands in the log is `["ADD_ADMIN_KEY", [key], …]`.
  * Scanning for ADD_ADMIN_KEY is therefore correct.
  *

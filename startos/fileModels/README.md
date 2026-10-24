@@ -5,9 +5,9 @@ StartOS-managed state: admin keys mirrored into `config.js`, the user-chosen
 main and sandbox URLs, and a one-shot latch for the wizard-completion
 notification.
 
-CryptPad's actual `config.js` is **not** a file model. It is regenerated
-from scratch on every restart from `store.json` plus upstream defaults; the
-generator lives in `../cryptpadConfig.ts`.
+CryptPad's actual `config.js` and `infra.js` are **not** file models. They are
+regenerated from scratch on every restart from `store.json` plus upstream
+defaults; the generators live in `../cryptpadConfig.ts`.
 
 Everything else CryptPad reads (`/admin/`-panel state, decree log, pad data)
 is written by CryptPad itself and lives on the `main` volume. Only the decree
